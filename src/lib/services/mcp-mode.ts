@@ -16,6 +16,8 @@ Usage (do not ignore this section):
 - Poll take_user_message regularly, including while idle between TUI turns. If you stop polling, their chat-bar lines sit unseen.
 - Call speak with only the spoken payload in text (one or two sentences). Never speak code, diffs, logs, stack traces, or essays. Do not repeat the same status.
 - Pass plain: true only when the line must be said exactly as written.
+- A reply in this TUI does not replace speak(). Notify via speak at plan, blocker, and done even when the user asked here.
+- Do not stay silent through a long stretch of tool use. If you have not spoken in a while, send one short status line. "This is a coding turn" is not a reason to skip speak.
 
 Default cadence (overridden by Preferences below):
 - When you have a plan: one short line that you are starting, and that you see a way forward.

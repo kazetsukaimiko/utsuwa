@@ -59,6 +59,8 @@ test('hardcoded MCP instructions cover polling and dumps, not user examples', ()
 	assert.match(HARDCODED_MCP_INSTRUCTIONS, /notification channel/);
 	assert.match(HARDCODED_MCP_INSTRUCTIONS, /Poll take_user_message/);
 	assert.match(HARDCODED_MCP_INSTRUCTIONS, /Never speak code/);
+	assert.match(HARDCODED_MCP_INSTRUCTIONS, /does not replace speak/);
+	assert.match(HARDCODED_MCP_INSTRUCTIONS, /coding turn/);
 	assert.doesNotMatch(HARDCODED_MCP_INSTRUCTIONS, /Building the session picker/);
 	assert.doesNotMatch(HARDCODED_MCP_INSTRUCTIONS, /Java is too old/);
 	assert.doesNotMatch(HARDCODED_MCP_INSTRUCTIONS, /Ironing out the bugs/);
