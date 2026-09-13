@@ -16,6 +16,7 @@ export interface McpClientSession {
 	topic: string;
 	modelId: string;
 	voiceId: string;
+	resumeId: string;
 	pending: number;
 }
 
@@ -32,6 +33,7 @@ function normalizeList(raw: unknown): McpClientSession[] {
 			topic: typeof obj.topic === 'string' ? obj.topic : '',
 			modelId: typeof obj.modelId === 'string' ? obj.modelId : '',
 			voiceId: typeof obj.voiceId === 'string' ? obj.voiceId : '',
+			resumeId: typeof obj.resumeId === 'string' ? obj.resumeId : '',
 			pending: typeof obj.pending === 'number' ? obj.pending : 0
 		});
 	}

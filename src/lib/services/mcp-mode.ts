@@ -12,7 +12,7 @@ export const HARDCODED_MCP_INSTRUCTIONS = `Utsuwa is a brief notification channe
 Usage (do not ignore this section):
 - Do the actual work in this session as usual, whether the user spoke in this TUI or sent a line through Utsuwa's chat bar.
 - Chat-bar lines arrive via take_user_message as prompt. That is a real user message; answer it.
-- You only receive what they routed to this session. Call set_session with a 1-7 word topic for this terminal.
+- You only receive what they routed to this session. Call set_session with a 1-7 word topic for this terminal. Also pass resumeId from env GROK_SESSION_ID (your Grok Build session id) so reconnects resume this avatar instead of spawning another.
 - Poll take_user_message regularly, including while idle between TUI turns. If you stop polling, their chat-bar lines sit unseen.
 - Call speak with only the spoken payload in text (one or two sentences). Never speak code, diffs, logs, stack traces, or essays. Do not repeat the same status.
 - Pass plain: true only when the line must be said exactly as written.
