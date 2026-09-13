@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **MCP Mode**: Chat (LLM) can use a connected MCP client instead of a model. The chat bar shows a session picker (name + topic); replies are spoken through a configurable template such as `${name} says: ${message}`.
 - **MCP client instructions**: connecting agents always get hardcoded usage rules (poll the chat bar, payload-only speak, no dumps). A Preferences field under Settings > Chat (LLM) > MCP notifications overlays tone and frequency. The speak template field is no longer in that UI; phrasing lives in the preferences prompt.
 - **Per-session avatars (MCP)**: each connected session can `set_character` / `set_voice` and is spawned as its own VRM in the main window. Speech and lip-sync run on that instance; TTS stays one-at-a-time.
-- **MCP session resume and idle**: pass `sessionId` (`AGENT_SESSION_ID`) on `set_session` to reconnect the same avatar. Avatars appear only after `set_session`, not on initialize. Unclaimed sessions expire in 90s; claimed in 10 minutes. Character config is stored under `~/.config/utsuwa/mcp-server/sessions/`.
+- **MCP session resume and idle**: pass `sessionId` (`AGENT_SESSION_ID`) on `set_session` to reconnect the same avatar. Avatars appear only after `set_session`, not on initialize. Idle sessions expire after four poll intervals (12s at the 3s default). Character config is stored under `~/.config/utsuwa/mcp-server/sessions/`.
 
 ### Fixed
 - MCP `speak` no longer plays the same line twice (main window and overlay each ran TTS).

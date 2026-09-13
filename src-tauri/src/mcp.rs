@@ -19,10 +19,11 @@ use tiny_http::{Header, Method, Response, Server, StatusCode};
 
 const DEFAULT_BIND: &str = "127.0.0.1:8787";
 const JS_TIMEOUT: Duration = Duration::from_secs(12);
-const SESSION_TTL: Duration = Duration::from_secs(10 * 60);
-const UNCLAIMED_TTL: Duration = Duration::from_secs(90);
-const PRUNE_INTERVAL: Duration = Duration::from_secs(15);
 const POLL_INTERVAL_SECS: u64 = 3;
+/// Claimed sessions drop after this many missed polls (4 × poll interval).
+const SESSION_TTL: Duration = Duration::from_secs(POLL_INTERVAL_SECS * 4);
+const UNCLAIMED_TTL: Duration = Duration::from_secs(POLL_INTERVAL_SECS * 4);
+const PRUNE_INTERVAL: Duration = Duration::from_secs(POLL_INTERVAL_SECS);
 const TOPIC_MAX_WORDS: usize = 7;
 
 /// Always prepended on initialize. Keep in sync with src/lib/services/mcp-mode.ts.
@@ -693,6 +694,7 @@ fn handle_http(
             "name": "utsuwa",
             "hostName": default_host_name(),
             "pollIntervalSeconds": POLL_INTERVAL_SECS,
+            "sessionTtlSeconds": POLL_INTERVAL_SECS * 4,
             "sessions": state.list_public()
         })
         .to_string();
@@ -809,6 +811,7 @@ fn handle_http(
                         obj.insert("sessionId".into(), json!(session.id));
                         obj.insert("instructions".into(), json!(state.instructions_text()));
                         obj.insert("pollIntervalSeconds".into(), json!(POLL_INTERVAL_SECS));
+                        obj.insert("sessionTtlSeconds".into(), json!(POLL_INTERVAL_SECS * 4));
                     }
                 }
                 value
@@ -1017,6 +1020,7 @@ fn call_webview(
                     obj.insert("sessions".into(), state.list_public());
                     obj.insert("hostName".into(), json!(default_host_name()));
                     obj.insert("pollIntervalSeconds".into(), json!(POLL_INTERVAL_SECS));
+                    obj.insert("sessionTtlSeconds".into(), json!(POLL_INTERVAL_SECS * 4));
                     if name == "get_status" {
                         obj.insert("instructions".into(), json!(state.instructions_text()));
                     }
@@ -1253,7 +1257,8 @@ fn initialize_result(params: Option<&Value>) -> Value {
         "capabilities": { "tools": { "listChanged": false } },
         "serverInfo": { "name": "utsuwa", "version": env!("CARGO_PKG_VERSION") },
         "instructions": compose_instructions(""),
-        "pollIntervalSeconds": POLL_INTERVAL_SECS
+        "pollIntervalSeconds": POLL_INTERVAL_SECS,
+        "sessionTtlSeconds": POLL_INTERVAL_SECS * 4
     })
 }
 
@@ -1407,8 +1412,8 @@ mod tests {
             claimed: false,
             ..claimed.clone()
         };
-        assert_eq!(session_ttl(&claimed), SESSION_TTL);
-        assert_eq!(session_ttl(&unclaimed), UNCLAIMED_TTL);
+        assert_eq!(session_ttl(&claimed), Duration::from_secs(12));
+        assert_eq!(session_ttl(&unclaimed), Duration::from_secs(12));
     }
 
     #[test]
@@ -1443,6 +1448,7 @@ mod tests {
                 assert!(instructions.contains("take_user_message"));
                 assert!(instructions.contains("idle poller"));
                 assert_eq!(v["result"]["pollIntervalSeconds"], 3);
+                assert_eq!(v["result"]["sessionTtlSeconds"], 12);
                 assert!(instructions.contains("does not replace speak"));
                 assert!(instructions.contains("AGENT_SESSION_ID"));
                 assert!(instructions.contains("First action after connect"));
