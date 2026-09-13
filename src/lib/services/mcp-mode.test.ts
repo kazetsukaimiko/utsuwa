@@ -57,9 +57,10 @@ test('applySpeakTemplate fills name topic and message', () => {
 
 test('hardcoded MCP instructions cover polling and dumps, not user examples', () => {
 	assert.match(HARDCODED_MCP_INSTRUCTIONS, /notification channel/);
-	assert.match(HARDCODED_MCP_INSTRUCTIONS, /Poll take_user_message/);
+	assert.match(HARDCODED_MCP_INSTRUCTIONS, /take_user_message/);
 	assert.match(HARDCODED_MCP_INSTRUCTIONS, /AGENT_SESSION_ID/);
-	assert.match(HARDCODED_MCP_INSTRUCTIONS, /initialize alone does not/);
+	assert.match(HARDCODED_MCP_INSTRUCTIONS, /First action after connect/);
+	assert.match(HARDCODED_MCP_INSTRUCTIONS, /user utterance/);
 	assert.match(HARDCODED_MCP_INSTRUCTIONS, /userAgent/);
 	assert.match(HARDCODED_MCP_INSTRUCTIONS, /Never speak code/);
 	assert.match(HARDCODED_MCP_INSTRUCTIONS, /does not replace speak/);
@@ -79,7 +80,7 @@ test('user MCP preferences use general examples', () => {
 
 test('composeMcpInstructions always includes hardcoded usage plus preferences', () => {
 	const composed = composeMcpInstructions('Be extremely terse.');
-	assert.match(composed, /Poll take_user_message/);
+	assert.match(composed, /take_user_message/);
 	assert.match(composed, /Preferences \(from the user at this machine\)/);
 	assert.match(composed, /Be extremely terse\./);
 	assert.doesNotMatch(composed, /Starting the search UI/);

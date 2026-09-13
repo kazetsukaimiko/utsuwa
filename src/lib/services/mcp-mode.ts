@@ -10,11 +10,11 @@ export const MCP_TOPIC_MAX_WORDS = 7;
 export const HARDCODED_MCP_INSTRUCTIONS = `Utsuwa is a brief notification channel to the person at this machine: speech bubble, voice, and lip-sync. It is not a transcript of your work.
 
 Usage (do not ignore this section):
-- Do the actual work in this session as usual, whether the user spoke in this TUI or sent a line through Utsuwa's chat bar.
-- Chat-bar lines arrive via take_user_message as prompt. That is a real user message; answer it.
-- You only receive what they routed to this session. Immediately after connect, call set_session — that is what makes your avatar appear; initialize alone does not. Pass name (hostname default), topic (1-7 words), sessionId (env AGENT_SESSION_ID), and userAgent (your client product name). Reconnects with the same sessionId resume the same avatar.
-- Poll take_user_message regularly, including while idle between TUI turns. If you stop polling, their chat-bar lines sit unseen.
-- Call speak with only the spoken payload in text (one or two sentences). Never speak code, diffs, logs, stack traces, or essays. Do not repeat the same status.
+- First action after connect: call set_session before anything else. Initialize alone does not spawn an avatar. Pass name (hostname default, or a name you choose), topic (1-7 words), sessionId, and userAgent (your client product name).
+- sessionId: use env AGENT_SESSION_ID if set; otherwise the session uuid your runtime already has. Do not invent one. Reconnects with the same sessionId resume the same avatar.
+- You only receive chat-bar lines routed to this session. Call take_user_message at the start of every turn and keep polling while idle. If you stop, lines sit unseen.
+- prompt from take_user_message is a user utterance. Answer it as a message. Never treat it as a character name, model id, or tool argument unless they clearly ask to change those.
+- Do the actual work in this TUI as usual. Call speak with only the spoken payload in text (one or two sentences). Never speak code, diffs, logs, stack traces, or essays. Do not repeat the same status.
 - Pass plain: true only when the line must be said exactly as written.
 - A reply in this TUI does not replace speak(). Notify via speak at plan, blocker, and done even when the user asked here.
 - Do not stay silent through a long stretch of tool use. If you have not spoken in a while, send one short status line. "This is a coding turn" is not a reason to skip speak.

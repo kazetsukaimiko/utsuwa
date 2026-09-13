@@ -24,7 +24,7 @@ const PRUNE_INTERVAL: Duration = Duration::from_secs(15);
 const TOPIC_MAX_WORDS: usize = 7;
 
 /// Always prepended on initialize. Keep in sync with src/lib/services/mcp-mode.ts.
-pub const HARDCODED_MCP_INSTRUCTIONS: &str = "Utsuwa is a brief notification channel to the person at this machine: speech bubble, voice, and lip-sync. It is not a transcript of your work.\n\nUsage (do not ignore this section):\n- Do the actual work in this session as usual, whether the user spoke in this TUI or sent a line through Utsuwa's chat bar.\n- Chat-bar lines arrive via take_user_message as prompt. That is a real user message; answer it.\n- You only receive what they routed to this session. Immediately after connect, call set_session — that is what makes your avatar appear; initialize alone does not. Pass name (hostname default), topic (1-7 words), sessionId (env AGENT_SESSION_ID), and userAgent (your client product name). Reconnects with the same sessionId resume the same avatar.\n- Poll take_user_message regularly, including while idle between TUI turns. If you stop polling, their chat-bar lines sit unseen.\n- Call speak with only the spoken payload in text (one or two sentences). Never speak code, diffs, logs, stack traces, or essays. Do not repeat the same status.\n- Pass plain: true only when the line must be said exactly as written.\n- A reply in this TUI does not replace speak(). Notify via speak at plan, blocker, and done even when the user asked here.\n- Do not stay silent through a long stretch of tool use. If you have not spoken in a while, send one short status line. \"This is a coding turn\" is not a reason to skip speak.\n\nDefault cadence (overridden by Preferences below):\n- When you have a plan: one short line that you are starting, and that you see a way forward.\n- When you are stuck on something they must fix: one line plus what you need from them.\n- When you finish: say you are done.\n- While grinding through routine errors: stay vague. Do not narrate every failure.";
+pub const HARDCODED_MCP_INSTRUCTIONS: &str = "Utsuwa is a brief notification channel to the person at this machine: speech bubble, voice, and lip-sync. It is not a transcript of your work.\n\nUsage (do not ignore this section):\n- First action after connect: call set_session before anything else. Initialize alone does not spawn an avatar. Pass name (hostname default, or a name you choose), topic (1-7 words), sessionId, and userAgent (your client product name).\n- sessionId: use env AGENT_SESSION_ID if set; otherwise the session uuid your runtime already has. Do not invent one. Reconnects with the same sessionId resume the same avatar.\n- You only receive chat-bar lines routed to this session. Call take_user_message at the start of every turn and keep polling while idle. If you stop, lines sit unseen.\n- prompt from take_user_message is a user utterance. Answer it as a message. Never treat it as a character name, model id, or tool argument unless they clearly ask to change those.\n- Do the actual work in this TUI as usual. Call speak with only the spoken payload in text (one or two sentences). Never speak code, diffs, logs, stack traces, or essays. Do not repeat the same status.\n- Pass plain: true only when the line must be said exactly as written.\n- A reply in this TUI does not replace speak(). Notify via speak at plan, blocker, and done even when the user asked here.\n- Do not stay silent through a long stretch of tool use. If you have not spoken in a while, send one short status line. \"This is a coding turn\" is not a reason to skip speak.\n\nDefault cadence (overridden by Preferences below):\n- When you have a plan: one short line that you are starting, and that you see a way forward.\n- When you are stuck on something they must fix: one line plus what you need from them.\n- When you finish: say you are done.\n- While grinding through routine errors: stay vague. Do not narrate every failure.";
 
 /// Default contents of the settings textarea. Keep in sync with src/lib/services/mcp-mode.ts.
 pub const DEFAULT_MCP_USER_INSTRUCTIONS: &str = "Keep updates short and spoken-friendly. A few per task is enough — not every tool call.\n\nGood:\n- \"Starting the search UI — I have a plan.\"\n- \"Need a newer runtime before this will build. Can you install it?\"\n- \"Working through a few errors.\"\n- \"That's in place.\"\n\nAvoid long explanations in speak(); put those in the TUI.";
@@ -1107,7 +1107,7 @@ fn tools_list() -> Value {
                     "properties": {
                         "name": { "type": "string", "description": "Display name. Defaults to the hostname (shizuku.local → Shizuku)." },
                         "topic": { "type": "string", "description": "1-7 words describing this terminal's work." },
-                        "sessionId": { "type": "string", "description": "This agent's session id (env AGENT_SESSION_ID). Reconnects resume the same avatar." },
+                        "sessionId": { "type": "string", "description": "This agent's session id. Use env AGENT_SESSION_ID if set, otherwise the uuid your runtime already has." },
                         "resumeId": { "type": "string", "description": "Alias of sessionId." },
                         "agentSessionId": { "type": "string", "description": "Alias of sessionId." },
                         "userAgent": { "type": "string", "description": "Client product name, e.g. Cursor, Claude Code, Hermes, Grok Build." }
@@ -1116,7 +1116,7 @@ fn tools_list() -> Value {
             },
             {
                 "name": "take_user_message",
-                "description": "Take the next chat-bar message the user addressed to THIS session. Returns {empty:true} if none. `prompt` is the user's text — answer it, then speak the payload.",
+                "description": "Take the next chat-bar message the user addressed to THIS session. Returns {empty:true} if none. `prompt` is a user utterance — answer it as chat, not as a character/model/tool name.",
                 "inputSchema": { "type": "object", "properties": {} }
             },
             {
@@ -1262,10 +1262,11 @@ mod tests {
                 assert_eq!(v["result"]["serverInfo"]["name"], "utsuwa");
                 let instructions = v["result"]["instructions"].as_str().unwrap();
                 assert!(instructions.contains("notification channel"));
-                assert!(instructions.contains("Poll take_user_message"));
+                assert!(instructions.contains("take_user_message"));
                 assert!(instructions.contains("does not replace speak"));
                 assert!(instructions.contains("AGENT_SESSION_ID"));
-                assert!(instructions.contains("initialize alone does not"));
+                assert!(instructions.contains("First action after connect"));
+                assert!(instructions.contains("user utterance"));
                 assert!(instructions.contains("Preferences (from the user at this machine)"));
                 assert!(!instructions.contains("Building the session picker"));
                 assert!(!instructions.contains("Java is too old"));
@@ -1336,7 +1337,7 @@ mod tests {
         let state = McpState::new();
         let default = state.instructions_text();
         assert!(default.contains("notification channel"));
-        assert!(default.contains("Poll take_user_message"));
+        assert!(default.contains("take_user_message"));
         assert!(default.contains("Starting the search UI"));
         assert!(!default.contains("Building the session picker"));
         state.set_instructions("  Be extremely terse.  ".into());
