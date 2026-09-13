@@ -333,15 +333,9 @@
 	}
 
 	$effect(() => {
-		const scale = camSettings.multiCharacterDistance;
-		const vrm = vrmStore.vrm;
-		let width = 0.7;
-		if (vrm) {
-			vrm.scene.updateWorldMatrix(true, true);
-			const box = new Box3().setFromObject(vrm.scene);
-			width = Math.max(box.max.x - box.min.x, 0.35);
-		}
-		vrmStore.setSlotSpacing(slotSpacingFromScale(scale, width));
+		vrmStore.setSlotSpacing(
+			slotSpacingFromScale(camSettings.multiCharacterDistance, vrmStore.characterWidth)
+		);
 	});
 
 	// Re-frame when the model or the camera settings change. In photo mode the

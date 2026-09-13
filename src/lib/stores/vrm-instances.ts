@@ -77,5 +77,11 @@ export function inwardFacingYaw(x: number, soften = 0.32): number {
 
 /** World-space gap between instance centers: scale 1 = one character width. */
 export function slotSpacingFromScale(scale: number, characterWidth: number): number {
-	return Math.max(0, scale) * Math.max(characterWidth, 0.01);
+	return Math.max(0, scale) * clampCharacterWidth(characterWidth);
+}
+
+/** Rest-pose body width used as the 1.0 mark on the spacing slider. */
+export function clampCharacterWidth(width: number): number {
+	if (!Number.isFinite(width) || width <= 0) return 0.7;
+	return Math.min(1.4, Math.max(0.4, width));
 }

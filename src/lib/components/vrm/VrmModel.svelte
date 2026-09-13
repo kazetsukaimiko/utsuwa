@@ -743,6 +743,11 @@
 
 				// Normalize model orientation and position
 				normalizeModel(loadedVrm);
+				if (isPrimary) {
+					loadedVrm.scene.updateMatrixWorld(true);
+					const box = new THREE.Box3().setFromObject(loadedVrm.scene);
+					vrmStore.setCharacterWidth(box.max.x - box.min.x);
+				}
 
 				// Set a natural idle pose (arms down instead of T-pose)
 				setIdlePose(loadedVrm);

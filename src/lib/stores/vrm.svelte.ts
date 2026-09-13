@@ -12,6 +12,7 @@ import {
 	upsertExtraInstance,
 	removeExtraInstance,
 	isPrimaryInstance,
+	clampCharacterWidth,
 	type VrmExtraInstance,
 	type VrmInstancePose
 } from './vrm-instances';
@@ -142,9 +143,16 @@ function createVrmStore() {
 	let extraHeadScreen = $state<Record<string, { x: number; y: number } | null>>({});
 	let instanceLoadGen = $state(0);
 	let slotSpacing = $state(DEFAULT_INSTANCE_SPACING);
+	let characterWidth = $state(0.7);
 
 	function notifyInstanceLoaded() {
 		instanceLoadGen += 1;
+	}
+
+	function setCharacterWidth(width: number) {
+		const next = clampCharacterWidth(width);
+		if (Math.abs(next - characterWidth) < 0.001) return;
+		characterWidth = next;
 	}
 
 	// Tap reactions: the scene raycasts a tap into a touch zone and the model
@@ -672,6 +680,9 @@ function createVrmStore() {
 		get instanceLoadGen() {
 			return instanceLoadGen;
 		},
+		get characterWidth() {
+			return characterWidth;
+		},
 		get reactionRequest() {
 			return reactionRequest;
 		},
@@ -708,6 +719,7 @@ function createVrmStore() {
 		setInstancePosition,
 		despawnInstance,
 		setSlotSpacing,
+		setCharacterWidth,
 		notifyInstanceLoaded,
 		addModel,
 		removeModel,

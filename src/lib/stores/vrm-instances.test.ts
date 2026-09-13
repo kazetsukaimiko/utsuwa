@@ -8,7 +8,8 @@ import {
 	removeExtraInstance,
 	isPrimaryInstance,
 	inwardFacingYaw,
-	slotSpacingFromScale
+	slotSpacingFromScale,
+	clampCharacterWidth
 } from './vrm-instances.ts';
 
 test('sceneInstances always leads with the primary avatar', () => {
@@ -84,4 +85,11 @@ test('slotSpacingFromScale is character-widths between centers', () => {
 	assert.equal(slotSpacingFromScale(0.5, 0.8), 0.4);
 	assert.equal(slotSpacingFromScale(2, 0.8), 1.6);
 	assert.equal(slotSpacingFromScale(0, 0.8), 0);
+});
+
+test('clampCharacterWidth ignores animated or empty bounds', () => {
+	assert.equal(clampCharacterWidth(0.8), 0.8);
+	assert.equal(clampCharacterWidth(0), 0.7);
+	assert.equal(clampCharacterWidth(Number.NaN), 0.7);
+	assert.equal(clampCharacterWidth(40), 1.4);
 });
