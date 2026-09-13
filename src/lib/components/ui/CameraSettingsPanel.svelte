@@ -27,7 +27,8 @@
 	const isDefault = $derived(
 		cam.fov === CAMERA_DEFAULTS.fov &&
 			cam.zoom === CAMERA_DEFAULTS.zoom &&
-			cam.height === CAMERA_DEFAULTS.height
+			cam.height === CAMERA_DEFAULTS.height &&
+			cam.multiCharacterDistance === CAMERA_DEFAULTS.multiCharacterDistance
 	);
 </script>
 
@@ -82,6 +83,26 @@
 			value={cam.fov}
 			oninput={(e) => displayStore.setCamera({ fov: parseFloat(e.currentTarget.value) }, profile)}
 		/>
+	</label>
+
+	<label class="control">
+		<span class="control-label">
+			Multi-character distance
+			<span class="control-value">{cam.multiCharacterDistance.toFixed(2)}</span>
+		</span>
+		<input
+			type="range"
+			min={CAMERA_LIMITS.multiCharacterDistance.min}
+			max={CAMERA_LIMITS.multiCharacterDistance.max}
+			step="0.05"
+			value={cam.multiCharacterDistance}
+			oninput={(e) =>
+				displayStore.setCamera(
+					{ multiCharacterDistance: parseFloat(e.currentTarget.value) },
+					profile
+				)}
+		/>
+		<span class="hint">1 = one character-width between centers</span>
 	</label>
 
 	<button class="reset-btn" onclick={() => displayStore.resetCamera(profile)} disabled={isDefault}>
@@ -209,6 +230,12 @@
 	.control-value {
 		color: var(--text-tertiary);
 		font-variant-numeric: tabular-nums;
+	}
+
+	.hint {
+		font-size: 0.6875rem;
+		color: var(--text-tertiary);
+		line-height: 1.35;
 	}
 
 	.control input[type='range'] {

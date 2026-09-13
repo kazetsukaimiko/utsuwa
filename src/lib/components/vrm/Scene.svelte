@@ -19,7 +19,7 @@
 	import VrmModel from './VrmModel.svelte';
 	import OverlayRaycastHandler from '$lib/components/overlay/OverlayRaycastHandler.svelte';
 	import { vrmStore } from '$lib/stores/vrm.svelte';
-	import { cameraDistanceToFitBox, inwardFacingYaw } from '$lib/stores/vrm-instances';
+	import { inwardFacingYaw, slotSpacingFromScale } from '$lib/stores/vrm-instances';
 	import { displayStore } from '$lib/stores/display.svelte';
 	import { photomodeStore, type CaptureOptions } from '$lib/stores/photomode.svelte';
 	import { bucketTouchZone } from '$lib/services/photo-touch';
@@ -318,33 +318,6 @@
 		cam.fov = s.fov;
 		cam.updateProjectionMatrix();
 
-		const extras = sceneInstances.filter((inst) => !inst.isPrimary && inst.url);
-		if (extras.length > 0 && modelRoot) {
-			modelRoot.updateWorldMatrix(true, true);
-			const box = new Box3().setFromObject(modelRoot);
-			if (!box.isEmpty()) {
-				const size = box.getSize(new Vector3());
-				const center = box.getCenter(new Vector3());
-				const canvas = renderer?.domElement;
-				const aspect = canvas && canvas.height > 0 ? canvas.width / canvas.height : 16 / 9;
-				const distance = cameraDistanceToFitBox(
-					{ x: size.x, y: size.y },
-					s.fov,
-					aspect,
-					s.zoom
-				);
-				const targetY = center.y + s.height;
-				cam.position.set(center.x, targetY, center.z + distance);
-				if (controls) {
-					controls.target.set(center.x, targetY, center.z);
-					controls.update();
-				} else {
-					cam.lookAt(center.x, targetY, center.z);
-				}
-				return;
-			}
-		}
-
 		const vrm = vrmStore.vrm;
 		const fit = vrm ? computeFit(vrm) : { center: 1.0, halfSpan: 0.55 };
 		const distance = fit.halfSpan / Math.tan((s.fov * Math.PI) / 360) / s.zoom;
@@ -358,6 +331,18 @@
 			cam.lookAt(0, targetY, 0);
 		}
 	}
+
+	$effect(() => {
+		const scale = camSettings.multiCharacterDistance;
+		const vrm = vrmStore.vrm;
+		let width = 0.7;
+		if (vrm) {
+			vrm.scene.updateWorldMatrix(true, true);
+			const box = new Box3().setFromObject(vrm.scene);
+			width = Math.max(box.max.x - box.min.x, 0.35);
+		}
+		vrmStore.setSlotSpacing(slotSpacingFromScale(scale, width));
+	});
 
 	// Re-frame when the model or the camera settings change. In photo mode the
 	// user owns the framing, so FOV changes only adjust the lens in place

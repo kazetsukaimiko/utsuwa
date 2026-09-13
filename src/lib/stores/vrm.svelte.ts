@@ -6,6 +6,7 @@ import { createTempVrmStoreIntegration } from '$lib/utils/temp-vrm-store';
 import type { TouchZone } from '$lib/engine/photo-reactions';
 import {
 	PRIMARY_INSTANCE_ID,
+	DEFAULT_INSTANCE_SPACING,
 	sceneInstances,
 	defaultPositionForSlot,
 	upsertExtraInstance,
@@ -140,6 +141,7 @@ function createVrmStore() {
 	let extraInstances = $state<VrmExtraInstance[]>([]);
 	let extraHeadScreen = $state<Record<string, { x: number; y: number } | null>>({});
 	let instanceLoadGen = $state(0);
+	let slotSpacing = $state(DEFAULT_INSTANCE_SPACING);
 
 	function notifyInstanceLoaded() {
 		instanceLoadGen += 1;
@@ -483,7 +485,7 @@ function createVrmStore() {
 			id,
 			modelId: opts?.modelId ?? fromId?.id ?? activeModelId,
 			url: opts?.url ?? fromId?.url ?? modelUrl,
-			position: opts?.position ?? defaultPositionForSlot(extraInstances.length)
+			position: opts?.position ?? defaultPositionForSlot(extraInstances.length, slotSpacing)
 		});
 	}
 
@@ -507,6 +509,16 @@ function createVrmStore() {
 		const current = extraInstances.find((e) => e.id === id);
 		if (!current) return;
 		extraInstances = upsertExtraInstance(extraInstances, { ...current, position });
+	}
+
+	function setSlotSpacing(spacing: number): void {
+		const next = Math.max(0, spacing);
+		if (Math.abs(next - slotSpacing) < 0.0001) return;
+		slotSpacing = next;
+		extraInstances = extraInstances.map((inst, i) => ({
+			...inst,
+			position: defaultPositionForSlot(i, slotSpacing)
+		}));
 	}
 
 	function despawnInstance(id: string): void {
@@ -695,6 +707,7 @@ function createVrmStore() {
 		setInstanceModel,
 		setInstancePosition,
 		despawnInstance,
+		setSlotSpacing,
 		notifyInstanceLoaded,
 		addModel,
 		removeModel,

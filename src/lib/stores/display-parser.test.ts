@@ -57,8 +57,8 @@ test('parses valid settings object', () => {
 		chatDisplayMode: 'sidebar',
 		sidebarPosition: 'left'
 	});
-	assert.deepEqual(result.camera, { fov: 45, zoom: 1.5, height: 0.1 });
-	assert.deepEqual(result.overlayCamera, { fov: 30, zoom: 0.8, height: -0.1 });
+	assert.deepEqual(result.camera, { ...CAMERA_DEFAULTS, fov: 45, zoom: 1.5, height: 0.1 });
+	assert.deepEqual(result.overlayCamera, { ...CAMERA_DEFAULTS, fov: 30, zoom: 0.8, height: -0.1 });
 	assert.equal(result.physicsIntensity, 0.75);
 	assert.equal(result.chatDisplayMode, 'sidebar');
 	assert.equal(result.sidebarPosition, 'left');
@@ -115,7 +115,7 @@ test('uses main camera for overlay camera when overlay camera is missing', () =>
 	const result = parseDisplaySettings({
 		camera: { fov: 45, zoom: 1.5, height: 0.1 }
 	});
-	assert.deepEqual(result.overlayCamera, { fov: 45, zoom: 1.5, height: 0.1 });
+	assert.deepEqual(result.overlayCamera, { ...CAMERA_DEFAULTS, fov: 45, zoom: 1.5, height: 0.1 });
 });
 
 test('returns defaults for undefined input', () => {
@@ -133,7 +133,8 @@ test('sanitizeCamera isolates and clamps camera values independently', () => {
 	assert.deepEqual(sanitized, {
 		fov: CAMERA_LIMITS.fov.max,
 		zoom: CAMERA_LIMITS.zoom.min,
-		height: CAMERA_LIMITS.height.max
+		height: CAMERA_LIMITS.height.max,
+		multiCharacterDistance: CAMERA_DEFAULTS.multiCharacterDistance
 	});
 	// Original object must not be mutated
 	assert.deepEqual(raw, { fov: 999, zoom: -10, height: 2 });
@@ -144,6 +145,7 @@ test('sanitizeCamera fills missing values from defaults', () => {
 	assert.equal(sanitized.fov, CAMERA_DEFAULTS.fov);
 	assert.equal(sanitized.zoom, 2.0);
 	assert.equal(sanitized.height, CAMERA_DEFAULTS.height);
+	assert.equal(sanitized.multiCharacterDistance, CAMERA_DEFAULTS.multiCharacterDistance);
 });
 
 test('defaults waitToneEnabled to false when missing', () => {

@@ -8,7 +8,7 @@ import {
 	removeExtraInstance,
 	isPrimaryInstance,
 	inwardFacingYaw,
-	cameraDistanceToFitBox
+	slotSpacingFromScale
 } from './vrm-instances.ts';
 
 test('sceneInstances always leads with the primary avatar', () => {
@@ -79,8 +79,9 @@ test('inwardFacingYaw turns side characters toward the center', () => {
 	assert.ok(Math.abs(inwardFacingYaw(1.2)) < Math.PI / 8, 'stays a mild angle');
 });
 
-test('cameraDistanceToFitBox grows when the group is wider than tall', () => {
-	const tall = cameraDistanceToFitBox({ x: 0.5, y: 1.6 }, 35, 16 / 9, 1);
-	const wide = cameraDistanceToFitBox({ x: 4, y: 1.6 }, 35, 16 / 9, 1);
-	assert.ok(wide > tall);
+test('slotSpacingFromScale is character-widths between centers', () => {
+	assert.equal(slotSpacingFromScale(1, 0.8), 0.8);
+	assert.equal(slotSpacingFromScale(0.5, 0.8), 0.4);
+	assert.equal(slotSpacingFromScale(2, 0.8), 1.6);
+	assert.equal(slotSpacingFromScale(0, 0.8), 0);
 });

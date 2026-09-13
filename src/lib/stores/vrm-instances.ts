@@ -75,17 +75,7 @@ export function inwardFacingYaw(x: number, soften = 0.32): number {
 	return -Math.atan(x / DEFAULT_INSTANCE_SPACING) * soften;
 }
 
-/** Distance so a world-space AABB fits in both axes at the given vertical FOV. */
-export function cameraDistanceToFitBox(
-	size: { x: number; y: number },
-	fovDeg: number,
-	aspect: number,
-	zoom: number,
-	pad = 1.14
-): number {
-	const vFov = (fovDeg * Math.PI) / 180;
-	const hFov = 2 * Math.atan(Math.tan(vFov / 2) * Math.max(aspect, 0.05));
-	const distV = size.y / 2 / Math.tan(vFov / 2);
-	const distH = size.x / 2 / Math.tan(hFov / 2);
-	return (Math.max(distV, distH, 0.4) * pad) / Math.max(zoom, 0.05);
+/** World-space gap between instance centers: scale 1 = one character width. */
+export function slotSpacingFromScale(scale: number, characterWidth: number): number {
+	return Math.max(0, scale) * Math.max(characterWidth, 0.01);
 }

@@ -29,6 +29,11 @@ export function sanitizeCamera(raw: Partial<CameraSettings> | undefined): Camera
 			raw?.height ?? CAMERA_DEFAULTS.height,
 			CAMERA_LIMITS.height.min,
 			CAMERA_LIMITS.height.max
+		),
+		multiCharacterDistance: clamp(
+			raw?.multiCharacterDistance ?? CAMERA_DEFAULTS.multiCharacterDistance,
+			CAMERA_LIMITS.multiCharacterDistance.min,
+			CAMERA_LIMITS.multiCharacterDistance.max
 		)
 	};
 }
