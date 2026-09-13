@@ -58,6 +58,9 @@ test('applySpeakTemplate fills name topic and message', () => {
 test('hardcoded MCP instructions cover polling and dumps, not user examples', () => {
 	assert.match(HARDCODED_MCP_INSTRUCTIONS, /notification channel/);
 	assert.match(HARDCODED_MCP_INSTRUCTIONS, /take_user_message/);
+	assert.match(HARDCODED_MCP_INSTRUCTIONS, /idle poller/);
+	assert.match(HARDCODED_MCP_INSTRUCTIONS, /3 seconds/);
+	assert.match(HARDCODED_MCP_INSTRUCTIONS, /Mcp-Session-Id/);
 	assert.match(HARDCODED_MCP_INSTRUCTIONS, /messages are waiting/);
 	assert.match(HARDCODED_MCP_INSTRUCTIONS, /AGENT_SESSION_ID/);
 	assert.match(HARDCODED_MCP_INSTRUCTIONS, /First action after connect/);

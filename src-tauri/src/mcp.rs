@@ -22,10 +22,11 @@ const JS_TIMEOUT: Duration = Duration::from_secs(12);
 const SESSION_TTL: Duration = Duration::from_secs(10 * 60);
 const UNCLAIMED_TTL: Duration = Duration::from_secs(90);
 const PRUNE_INTERVAL: Duration = Duration::from_secs(15);
+const POLL_INTERVAL_SECS: u64 = 3;
 const TOPIC_MAX_WORDS: usize = 7;
 
 /// Always prepended on initialize. Keep in sync with src/lib/services/mcp-mode.ts.
-pub const HARDCODED_MCP_INSTRUCTIONS: &str = "Utsuwa is a brief notification channel to the person at this machine: speech bubble, voice, and lip-sync. It is not a transcript of your work.\n\nUsage (do not ignore this section):\n- First action after connect: call set_session before anything else. Initialize alone does not spawn an avatar. Pass name (hostname default, or a name you choose), topic (1-7 words), sessionId, and userAgent (your client product name).\n- sessionId: use env AGENT_SESSION_ID if set; otherwise the session uuid your runtime already has. Do not invent one. Reconnects with the same sessionId resume the same avatar.\n- You only receive chat-bar lines routed to this session. Call take_user_message at the start of every turn and keep polling while idle. If you stop, lines sit unseen. If you receive a notification that messages are waiting, call take_user_message immediately.\n- prompt from take_user_message is a user utterance. Answer it as a message. Never treat it as a character name, model id, or tool argument unless they clearly ask to change those.\n- Do the actual work in this TUI as usual. Call speak with only the spoken payload in text (one or two sentences). Never speak code, diffs, logs, stack traces, or essays. Do not repeat the same status.\n- Pass plain: true only when the line must be said exactly as written.\n- A reply in this TUI does not replace speak(). Notify via speak at plan, blocker, and done even when the user asked here.\n- Do not stay silent through a long stretch of tool use. If you have not spoken in a while, send one short status line. \"This is a coding turn\" is not a reason to skip speak.\n\nDefault cadence (overridden by Preferences below):\n- When you have a plan: one short line that you are starting, and that you see a way forward.\n- When you are stuck on something they must fix: one line plus what you need from them.\n- When you finish: say you are done.\n- While grinding through routine errors: stay vague. Do not narrate every failure.";
+pub const HARDCODED_MCP_INSTRUCTIONS: &str = "Utsuwa is a brief notification channel to the person at this machine: speech bubble, voice, and lip-sync. It is not a transcript of your work.\n\nUsage (do not ignore this section):\n- First action after connect: call set_session before anything else. Initialize alone does not spawn an avatar. Pass name (hostname default, or a name you choose), topic (1-7 words), sessionId, and userAgent (your client product name).\n- sessionId: use env AGENT_SESSION_ID if set; otherwise the session uuid your runtime already has. Do not invent one. Reconnects with the same sessionId resume the same avatar.\n- Immediately after set_session, start an idle poller for take_user_message and keep it running for the life of this connection. Default interval is 3 seconds (see pollIntervalSeconds on initialize / get_status). Do not wait for the next TUI turn.\n- A background HTTP poller is the same inbox if it POSTs take_user_message with this session's Mcp-Session-Id. Do not initialize a second session for polling.\n- You only receive chat-bar lines routed to this session. If you receive a notification that messages are waiting, call take_user_message immediately.\n- prompt from take_user_message is a user utterance. Answer it as a message. Never treat it as a character name, model id, or tool argument unless they clearly ask to change those.\n- Do the actual work in this TUI as usual. Call speak with only the spoken payload in text (one or two sentences). Never speak code, diffs, logs, stack traces, or essays. Do not repeat the same status.\n- Pass plain: true only when the line must be said exactly as written.\n- A reply in this TUI does not replace speak(). Notify via speak at plan, blocker, and done even when the user asked here.\n- Do not stay silent through a long stretch of tool use. If you have not spoken in a while, send one short status line. \"This is a coding turn\" is not a reason to skip speak.\n\nDefault cadence (overridden by Preferences below):\n- When you have a plan: one short line that you are starting, and that you see a way forward.\n- When you are stuck on something they must fix: one line plus what you need from them.\n- When you finish: say you are done.\n- While grinding through routine errors: stay vague. Do not narrate every failure.";
 
 /// Default contents of the settings textarea. Keep in sync with src/lib/services/mcp-mode.ts.
 pub const DEFAULT_MCP_USER_INSTRUCTIONS: &str = "Keep updates short and spoken-friendly. A few per task is enough — not every tool call.\n\nGood:\n- \"Starting the search UI — I have a plan.\"\n- \"Need a newer runtime before this will build. Can you install it?\"\n- \"Working through a few errors.\"\n- \"That's in place.\"\n\nAvoid long explanations in speak(); put those in the TUI.";
@@ -658,6 +659,7 @@ fn handle_http(
             "mcp": "http://127.0.0.1:8787/mcp",
             "name": "utsuwa",
             "hostName": default_host_name(),
+            "pollIntervalSeconds": POLL_INTERVAL_SECS,
             "sessions": state.list_public()
         })
         .to_string();
@@ -772,6 +774,7 @@ fn handle_http(
                     if let Some(obj) = result.as_object_mut() {
                         obj.insert("sessionId".into(), json!(session.id));
                         obj.insert("instructions".into(), json!(state.instructions_text()));
+                        obj.insert("pollIntervalSeconds".into(), json!(POLL_INTERVAL_SECS));
                     }
                 }
                 value
@@ -980,6 +983,7 @@ fn call_webview(
                     obj.insert("sessions".into(), state.list_public());
                     obj.insert("hostName".into(), json!(default_host_name()));
                     obj.insert("instructions".into(), json!(state.instructions_text()));
+                    obj.insert("pollIntervalSeconds".into(), json!(POLL_INTERVAL_SECS));
                 }
             }
             jsonrpc_result(id, wrap_tool_result(payload, !reply.ok))
@@ -1191,7 +1195,8 @@ fn initialize_result(params: Option<&Value>) -> Value {
         "protocolVersion": version,
         "capabilities": { "tools": { "listChanged": false } },
         "serverInfo": { "name": "utsuwa", "version": env!("CARGO_PKG_VERSION") },
-        "instructions": compose_instructions("")
+        "instructions": compose_instructions(""),
+        "pollIntervalSeconds": POLL_INTERVAL_SECS
     })
 }
 
@@ -1215,7 +1220,7 @@ fn tools_list() -> Value {
             },
             {
                 "name": "take_user_message",
-                "description": "Take the next chat-bar message the user addressed to THIS session. Returns {empty:true} if none. `prompt` is a user utterance — answer it as chat, not as a character/model/tool name.",
+                "description": "Take the next chat-bar message for THIS session. Returns {empty:true} if none. Poll every pollIntervalSeconds (default 3). `prompt` is a user utterance — answer it as chat, not as a character/model/tool name.",
                 "inputSchema": { "type": "object", "properties": {} }
             },
             {
@@ -1362,6 +1367,8 @@ mod tests {
                 let instructions = v["result"]["instructions"].as_str().unwrap();
                 assert!(instructions.contains("notification channel"));
                 assert!(instructions.contains("take_user_message"));
+                assert!(instructions.contains("idle poller"));
+                assert_eq!(v["result"]["pollIntervalSeconds"], 3);
                 assert!(instructions.contains("does not replace speak"));
                 assert!(instructions.contains("AGENT_SESSION_ID"));
                 assert!(instructions.contains("First action after connect"));
