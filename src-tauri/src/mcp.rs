@@ -1310,6 +1310,18 @@ fn tools_list() -> Value {
                 "name": "debug_state",
                 "description": "Temporary dump of MCP + scene state (window, sessions, VRM instances). For debugging; safe to remove later.",
                 "inputSchema": { "type": "object", "properties": {} }
+            },
+            {
+                "name": "debug_chat_bar",
+                "description": "Temporary: get/set the MCP chat-bar dropdown and send a test line as the user. action: get | select | set_draft | send. send queues take_user_message for the selected (or given) session.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "action": { "type": "string", "description": "get (default), select, set_draft, or send" },
+                        "sessionId": { "type": "string" },
+                        "text": { "type": "string", "description": "Draft or message body for set_draft / send" }
+                    }
+                }
             }
         ]
     })
@@ -1322,8 +1334,8 @@ fn parse_tool_call(params: Option<&Value>) -> Result<(String, Value), String> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| "missing tool name".to_string())?;
     match name {
-        "speak" | "stop_speech" | "get_status" | "debug_state" | "set_session" | "set_character"
-        | "set_voice" | "take_user_message" => {
+        "speak" | "stop_speech" | "get_status" | "debug_state" | "debug_chat_bar" | "set_session"
+        | "set_character" | "set_voice" | "take_user_message" => {
             Ok((name.to_string(), params.get("arguments").cloned().unwrap_or_else(|| json!({}))))
         }
         other => Err(format!("unknown tool: {other}")),
@@ -1441,6 +1453,7 @@ mod tests {
                 assert!(names.contains(&"take_user_message"));
                 assert!(names.contains(&"speak"));
                 assert!(names.contains(&"debug_state"));
+                assert!(names.contains(&"debug_chat_bar"));
             }
             _ => panic!("expected respond"),
         }

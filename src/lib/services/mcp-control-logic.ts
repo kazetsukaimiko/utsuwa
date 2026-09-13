@@ -3,6 +3,7 @@ export const MCP_TOOLS = [
 	'stop_speech',
 	'get_status',
 	'debug_state',
+	'debug_chat_bar',
 	'set_session',
 	'set_character',
 	'set_voice',

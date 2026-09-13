@@ -74,6 +74,15 @@ test('parseMcpCommand accepts debug_state', () => {
 	assert.ok(!('error' in parsed));
 });
 
+test('parseMcpCommand accepts debug_chat_bar', () => {
+	const parsed = parseMcpCommand({
+		id: 'mcp-bar',
+		tool: 'debug_chat_bar',
+		arguments: { action: 'get' }
+	});
+	assert.ok(!('error' in parsed));
+});
+
 test('parseMcpCommand accepts set_character', () => {
 	const parsed = parseMcpCommand({
 		id: 'mcp-3',

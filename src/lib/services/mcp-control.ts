@@ -1,5 +1,6 @@
 import { isTauri } from '$lib/services/platform';
 import { chatStore } from '$lib/stores/chat.svelte';
+import { chatDraftStore } from '$lib/stores/chat-draft.svelte';
 import { ttsStore } from '$lib/stores/tts.svelte';
 import { vrmStore } from '$lib/stores/vrm.svelte';
 import { personaStore } from '$lib/stores/persona.svelte';
@@ -25,12 +26,14 @@ export interface McpReply {
 	payload: Record<string, unknown>;
 }
 
-export function executeMcpCommand(cmd: McpCommand, hooks: McpHooks): McpReply {
+export async function executeMcpCommand(cmd: McpCommand, hooks: McpHooks): Promise<McpReply> {
 	switch (cmd.tool) {
 		case 'get_status':
 			return statusReply();
 		case 'debug_state':
 			return debugState(cmd);
+		case 'debug_chat_bar':
+			return debugChatBar(cmd);
 		case 'stop_speech':
 			ttsStore.stop();
 			vrmStore.stopTalking();
@@ -89,6 +92,79 @@ function speak(cmd: McpCommand, hooks: McpHooks): McpReply {
 	vrmStore.startTalking(spoken, speaker);
 	void ttsStore.speak(spoken, options);
 	return { ok: true, payload: { queued: true, spoken: true, provider: options.provider } };
+}
+
+async function debugChatBar(cmd: McpCommand): Promise<McpReply> {
+	const action =
+		typeof cmd.arguments.action === 'string' ? cmd.arguments.action.trim().toLowerCase() : 'get';
+	const text = typeof cmd.arguments.text === 'string' ? cmd.arguments.text : '';
+	const sessionId =
+		typeof cmd.arguments.sessionId === 'string' && cmd.arguments.sessionId
+			? cmd.arguments.sessionId
+			: mcpSessionsStore.selectedId;
+
+	if (action === 'select') {
+		if (!sessionId) return { ok: false, payload: { error: 'sessionId is required' } };
+		mcpSessionsStore.select(sessionId);
+		if (mcpSessionsStore.selectedId !== sessionId) {
+			return { ok: false, payload: { error: 'unknown session', sessionId } };
+		}
+		return { ok: true, payload: chatBarSnapshot('select') };
+	}
+
+	if (action === 'set_draft') {
+		chatDraftStore.draft = text;
+		return { ok: true, payload: chatBarSnapshot('set_draft') };
+	}
+
+	if (action === 'send') {
+		const content = text.trim() || chatDraftStore.draft.trim();
+		if (!content) return { ok: false, payload: { error: 'text is required' } };
+		if (!sessionId) {
+			return { ok: false, payload: { error: 'no session selected' } };
+		}
+		mcpSessionsStore.select(sessionId);
+		chatDraftStore.draft = '';
+		chatStore.addMessage('user', content);
+		if (!isTauri()) {
+			return { ok: false, payload: { error: 'not desktop' } };
+		}
+		const { invoke } = await import('@tauri-apps/api/core');
+		try {
+			await invoke('mcp_enqueue_user', { sessionId, text: content });
+		} catch (err) {
+			return {
+				ok: false,
+				payload: { error: err instanceof Error ? err.message : String(err) }
+			};
+		}
+		return {
+			ok: true,
+			payload: { ...chatBarSnapshot('send'), queued: true, sessionId, text: content }
+		};
+	}
+
+	return { ok: true, payload: chatBarSnapshot('get') };
+}
+
+function chatBarSnapshot(action: string): Record<string, unknown> {
+	const selected = mcpSessionsStore.selected;
+	return {
+		temporary: true,
+		action,
+		sessions: mcpSessionsStore.sessions.map((s) => ({
+			id: s.id,
+			name: s.name,
+			topic: s.topic,
+			userAgent: s.userAgent
+		})),
+		sessionCount: mcpSessionsStore.sessions.length,
+		selectedId: mcpSessionsStore.selectedId,
+		selectedLabel: selected ? `${selected.name} ${selected.topic}`.trim() : 'No sessions',
+		draft: chatDraftStore.draft,
+		chatLoading: chatStore.isLoading,
+		inputDisabled: chatStore.isLoading
+	};
 }
 
 function debugState(cmd: McpCommand): McpReply {
@@ -169,7 +245,7 @@ export async function startMcpBridge(
 			// or both main and overlay will hit OmniVoice a beat apart.
 			if (!isCommandForWindow(parsed, windowLabel)) return;
 			try {
-				const reply = executeMcpCommand(parsed, hooks);
+				const reply = await executeMcpCommand(parsed, hooks);
 				await invoke('mcp_reply', { id: parsed.id, ok: reply.ok, payload: reply.payload });
 				if (parsed.tool === 'speak' && reply.ok) {
 					const { emit } = await import('@tauri-apps/api/event');
