@@ -66,7 +66,7 @@
 
 	let { centered = false, locked = false, overlay = false }: Props = $props();
 
-	const modelUrl = $derived(vrmStore.modelUrl);
+	const sceneInstances = $derived(vrmStore.instances);
 
 	const { camera, renderer, scene } = useThrelte();
 	const { isPresenting } = useXR();
@@ -431,11 +431,13 @@
      intensity 1 the classic three-vrm viewers were tuned against. -->
 <T.DirectionalLight intensity={Math.PI} position={[1, 1, 1]} />
 
-<!-- VRM Model, wrapped so AR placement can move/scale it without remounting -->
+<!-- VRM models, wrapped so AR placement can move/scale them without remounting -->
 <T.Group bind:ref={modelRoot}>
-	{#if modelUrl}
-		<VrmModel url={modelUrl} />
-	{/if}
+	{#each sceneInstances as inst (inst.id)}
+		{#if inst.url}
+			<VrmModel url={inst.url} instanceId={inst.id} position={inst.position} />
+		{/if}
+	{/each}
 </T.Group>
 
 {#if $isPresenting && modelRoot}

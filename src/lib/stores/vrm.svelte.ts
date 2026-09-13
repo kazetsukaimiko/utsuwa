@@ -4,6 +4,16 @@ import localforage from 'localforage';
 import { isTauri } from '$lib/services/platform/platform';
 import { createTempVrmStoreIntegration } from '$lib/utils/temp-vrm-store';
 import type { TouchZone } from '$lib/engine/photo-reactions';
+import {
+	PRIMARY_INSTANCE_ID,
+	sceneInstances,
+	defaultPositionForSlot,
+	upsertExtraInstance,
+	removeExtraInstance,
+	isPrimaryInstance,
+	type VrmExtraInstance,
+	type VrmInstancePose
+} from './vrm-instances';
 
 export interface VrmModel {
 	id: string;
@@ -122,6 +132,13 @@ function createVrmStore() {
 	// Talking animation state (triggered by text output)
 	let isTalking = $state(false);
 	let talkingTimeout: ReturnType<typeof setTimeout> | null = null;
+	let talkingInstanceId = $state<string>(PRIMARY_INSTANCE_ID);
+	let extraTalking = $state<Record<string, boolean>>({});
+	let extraTalkingTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+
+	// Additional VRM bodies in the scene (not the user's primary avatar).
+	let extraInstances = $state<VrmExtraInstance[]>([]);
+	let extraHeadScreen = $state<Record<string, { x: number; y: number } | null>>({});
 
 	// Tap reactions: the scene raycasts a tap into a touch zone and the model
 	// component applies the staged reaction. Universal, not photo-mode-only.
@@ -369,12 +386,19 @@ function createVrmStore() {
 		headPosition = pos;
 	}
 
-	function setHeadScreenPosition(pos: { x: number; y: number } | null) {
-		const p = headScreenPosition;
-		if (pos && p && Math.abs(p.x - pos.x) < 0.05 && Math.abs(p.y - pos.y) < 0.05) {
+	function setHeadScreenPosition(
+		pos: { x: number; y: number } | null,
+		instanceId: string = PRIMARY_INSTANCE_ID
+	) {
+		if (isPrimaryInstance(instanceId)) {
+			const p = headScreenPosition;
+			if (pos && p && Math.abs(p.x - pos.x) < 0.05 && Math.abs(p.y - pos.y) < 0.05) {
+				return;
+			}
+			headScreenPosition = pos;
 			return;
 		}
-		headScreenPosition = pos;
+		extraHeadScreen = { ...extraHeadScreen, [instanceId]: pos };
 	}
 
 	function setCurrentAnimation(animationIdOrPath: string | null) {
@@ -395,32 +419,103 @@ function createVrmStore() {
 
 	// Start talking animation based on text length
 	// Estimates ~15 characters per second of speaking
-	function startTalking(text: string) {
-		// Clear any existing timeout
-		if (talkingTimeout) {
-			clearTimeout(talkingTimeout);
-		}
-
-		// Calculate duration: ~15 chars/sec, minimum 1 second
+	function startTalking(text: string, instanceId: string = PRIMARY_INSTANCE_ID) {
+		talkingInstanceId = instanceId || PRIMARY_INSTANCE_ID;
 		const charsPerSecond = 15;
 		const duration = Math.max(1, text.length / charsPerSecond) * 1000;
 
-		isTalking = true;
+		if (isPrimaryInstance(talkingInstanceId)) {
+			if (talkingTimeout) clearTimeout(talkingTimeout);
+			isTalking = true;
+			talkingTimeout = setTimeout(() => {
+				isTalking = false;
+				talkingTimeout = null;
+			}, duration);
+			return;
+		}
 
-		// Auto-stop after estimated duration
-		talkingTimeout = setTimeout(() => {
-			isTalking = false;
-			talkingTimeout = null;
+		const existing = extraTalkingTimeouts.get(talkingInstanceId);
+		if (existing) clearTimeout(existing);
+		extraTalking = { ...extraTalking, [talkingInstanceId]: true };
+		const timeout = setTimeout(() => {
+			extraTalking = { ...extraTalking, [talkingInstanceId]: false };
+			extraTalkingTimeouts.delete(talkingInstanceId);
 		}, duration);
+		extraTalkingTimeouts.set(talkingInstanceId, timeout);
 	}
 
 	// Stop talking animation immediately
-	function stopTalking() {
-		if (talkingTimeout) {
-			clearTimeout(talkingTimeout);
-			talkingTimeout = null;
+	function stopTalking(instanceId?: string) {
+		const id = instanceId || talkingInstanceId;
+		if (isPrimaryInstance(id)) {
+			if (talkingTimeout) {
+				clearTimeout(talkingTimeout);
+				talkingTimeout = null;
+			}
+			isTalking = false;
+			return;
 		}
-		isTalking = false;
+		const existing = extraTalkingTimeouts.get(id);
+		if (existing) {
+			clearTimeout(existing);
+			extraTalkingTimeouts.delete(id);
+		}
+		extraTalking = { ...extraTalking, [id]: false };
+	}
+
+	function isInstanceTalking(instanceId: string): boolean {
+		if (isPrimaryInstance(instanceId)) return isTalking;
+		return extraTalking[instanceId] === true;
+	}
+
+	function spawnInstance(
+		id: string,
+		opts?: { modelId?: string; url?: string; position?: VrmInstancePose }
+	): void {
+		if (!id || id === PRIMARY_INSTANCE_ID) return;
+		const fromId = opts?.modelId ? models.find((m) => m.id === opts.modelId) : getActiveModel();
+		extraInstances = upsertExtraInstance(extraInstances, {
+			id,
+			modelId: opts?.modelId ?? fromId?.id ?? activeModelId,
+			url: opts?.url ?? fromId?.url ?? modelUrl,
+			position: opts?.position ?? defaultPositionForSlot(extraInstances.length)
+		});
+	}
+
+	function setInstanceModel(id: string, modelId: string): void {
+		if (isPrimaryInstance(id)) {
+			setActiveModel(modelId);
+			return;
+		}
+		const model = models.find((m) => m.id === modelId);
+		if (!model) return;
+		extraInstances = upsertExtraInstance(extraInstances, {
+			id,
+			modelId: model.id,
+			url: model.url,
+			position: extraInstances.find((e) => e.id === id)?.position ?? defaultPositionForSlot(0)
+		});
+	}
+
+	function setInstancePosition(id: string, position: VrmInstancePose): void {
+		if (isPrimaryInstance(id)) return;
+		const current = extraInstances.find((e) => e.id === id);
+		if (!current) return;
+		extraInstances = upsertExtraInstance(extraInstances, { ...current, position });
+	}
+
+	function despawnInstance(id: string): void {
+		extraInstances = removeExtraInstance(extraInstances, id);
+		if (talkingInstanceId === id) talkingInstanceId = PRIMARY_INSTANCE_ID;
+		const { [id]: _talk, ...restTalk } = extraTalking;
+		extraTalking = restTalk;
+		const { [id]: _head, ...restHead } = extraHeadScreen;
+		extraHeadScreen = restHead;
+		const timeout = extraTalkingTimeouts.get(id);
+		if (timeout) {
+			clearTimeout(timeout);
+			extraTalkingTimeouts.delete(id);
+		}
 	}
 
 	function loadTempModel(file: File): void {
@@ -551,6 +646,12 @@ function createVrmStore() {
 		get isTalking() {
 			return isTalking;
 		},
+		get talkingInstanceId() {
+			return talkingInstanceId;
+		},
+		get instances() {
+			return sceneInstances({ modelId: activeModelId, url: modelUrl }, extraInstances);
+		},
 		get reactionRequest() {
 			return reactionRequest;
 		},
@@ -559,7 +660,8 @@ function createVrmStore() {
 			return headPosition;
 		},
 		get headScreenPosition() {
-			return headScreenPosition;
+			if (isPrimaryInstance(talkingInstanceId)) return headScreenPosition;
+			return extraHeadScreen[talkingInstanceId] ?? headScreenPosition;
 		},
 		get tempModelActive() {
 			return tempModelActive;
@@ -580,6 +682,11 @@ function createVrmStore() {
 		setCurrentAnimation,
 		startTalking,
 		stopTalking,
+		isInstanceTalking,
+		spawnInstance,
+		setInstanceModel,
+		setInstancePosition,
+		despawnInstance,
 		addModel,
 		removeModel,
 		getActiveModel,
