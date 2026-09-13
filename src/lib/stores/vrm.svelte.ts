@@ -419,7 +419,7 @@ function createVrmStore() {
 
 	// Start talking animation based on text length
 	// Estimates ~15 characters per second of speaking
-	function startTalking(text: string, instanceId: string = PRIMARY_INSTANCE_ID) {
+	function startTalking(text: string, instanceId?: string) {
 		talkingInstanceId = instanceId || PRIMARY_INSTANCE_ID;
 		const charsPerSecond = 15;
 		const duration = Math.max(1, text.length / charsPerSecond) * 1000;

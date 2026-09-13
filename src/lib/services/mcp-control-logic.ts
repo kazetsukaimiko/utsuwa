@@ -1,4 +1,12 @@
-export const MCP_TOOLS = ['speak', 'stop_speech', 'get_status', 'set_session', 'take_user_message'] as const;
+export const MCP_TOOLS = [
+	'speak',
+	'stop_speech',
+	'get_status',
+	'set_session',
+	'set_character',
+	'set_voice',
+	'take_user_message'
+] as const;
 export type McpTool = (typeof MCP_TOOLS)[number];
 
 export interface McpCommand {
@@ -9,6 +17,7 @@ export interface McpCommand {
 	sessionId?: string;
 	speakerName?: string;
 	speakerTopic?: string;
+	speakerVoice?: string;
 	arguments: Record<string, unknown>;
 }
 
@@ -31,6 +40,8 @@ export function parseMcpCommand(raw: unknown): McpCommand | { error: string } {
 	const speakerName =
 		typeof obj.speakerName === 'string' && obj.speakerName ? obj.speakerName : undefined;
 	const speakerTopic = typeof obj.speakerTopic === 'string' ? obj.speakerTopic : undefined;
+	const speakerVoice =
+		typeof obj.speakerVoice === 'string' && obj.speakerVoice ? obj.speakerVoice : undefined;
 	return {
 		id: obj.id,
 		tool: obj.tool as McpTool,
@@ -38,6 +49,7 @@ export function parseMcpCommand(raw: unknown): McpCommand | { error: string } {
 		sessionId,
 		speakerName,
 		speakerTopic,
+		speakerVoice,
 		arguments: args
 	};
 }

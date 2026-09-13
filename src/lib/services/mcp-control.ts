@@ -51,8 +51,9 @@ function speak(cmd: McpCommand, hooks: McpHooks): McpReply {
 	hooks.setLatestResponse(spoken);
 	mcpSessionsStore.completeWait(cmd.sessionId);
 
+	const speaker = cmd.sessionId;
 	if (!isSpeechEnabled()) {
-		vrmStore.startTalking(spoken);
+		vrmStore.startTalking(spoken, speaker);
 		return {
 			ok: true,
 			payload: { queued: false, spoken: false, warning: 'Speech module is disabled' }
@@ -61,7 +62,7 @@ function speak(cmd: McpCommand, hooks: McpHooks): McpReply {
 
 	const options = getCurrentTtsOptions();
 	if (!options) {
-		vrmStore.startTalking(spoken);
+		vrmStore.startTalking(spoken, speaker);
 		return {
 			ok: true,
 			payload: { queued: false, spoken: false, warning: 'No TTS provider configured' }
@@ -69,9 +70,10 @@ function speak(cmd: McpCommand, hooks: McpHooks): McpReply {
 	}
 
 	if (language) options.language = language;
+	if (cmd.speakerVoice) options.voiceId = cmd.speakerVoice;
 
 	if (!canSpeak(options)) {
-		vrmStore.startTalking(spoken);
+		vrmStore.startTalking(spoken, speaker);
 		return {
 			ok: true,
 			payload: {
@@ -82,7 +84,7 @@ function speak(cmd: McpCommand, hooks: McpHooks): McpReply {
 		};
 	}
 
-	vrmStore.startTalking(spoken);
+	vrmStore.startTalking(spoken, speaker);
 	void ttsStore.speak(spoken, options);
 	return { ok: true, payload: { queued: true, spoken: true, provider: options.provider } };
 }
@@ -98,6 +100,7 @@ function statusReply(): McpReply {
 			ttsProvider: options?.provider ?? null,
 			ttsReady: options ? canSpeak(options) : false,
 			characterName: personaStore.name,
+			availableModels: vrmStore.models.map((m) => ({ id: m.id, name: m.name })),
 			lastTtsError: ttsStore.lastError
 		}
 	};
@@ -107,7 +110,10 @@ function statusReply(): McpReply {
  * Listen for mcp:command events from the Tauri backend. No-op outside desktop.
  * Returns an unsubscribe function.
  */
-export async function startMcpBridge(hooks: McpHooks): Promise<() => void> {
+export async function startMcpBridge(
+	hooks: McpHooks,
+	opts?: { spawnSessionAvatars?: boolean }
+): Promise<() => void> {
 	if (!isTauri()) return () => {};
 
 	const { listen } = await import('@tauri-apps/api/event');
@@ -150,7 +156,9 @@ export async function startMcpBridge(hooks: McpHooks): Promise<() => void> {
 		{ target: windowLabel }
 	);
 
-	const unlistenSessions = await mcpSessionsStore.start();
+	const unlistenSessions = await mcpSessionsStore.start({
+		spawnAvatars: opts?.spawnSessionAvatars === true
+	});
 	await syncMcpInstructions();
 
 	return () => {

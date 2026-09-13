@@ -61,6 +61,8 @@ struct ClientSession {
     id: String,
     name: String,
     topic: String,
+    model_id: String,
+    voice_id: String,
     last_seen: Instant,
     inbox: VecDeque<InboxItem>,
 }
@@ -86,6 +88,7 @@ struct JsCommand {
     session_id: String,
     speaker_name: String,
     speaker_topic: String,
+    speaker_voice: String,
     arguments: Value,
 }
 
@@ -130,6 +133,8 @@ impl McpState {
             id: id.clone(),
             name,
             topic: clamp_topic(&topic),
+            model_id: String::new(),
+            voice_id: String::new(),
             last_seen: Instant::now(),
             inbox: VecDeque::new(),
         };
@@ -182,6 +187,28 @@ impl McpState {
         Some(clone)
     }
 
+    fn set_appearance(
+        &self,
+        id: &str,
+        model_id: Option<String>,
+        voice_id: Option<String>,
+    ) -> Option<ClientSession> {
+        self.prune();
+        let mut sessions = self.sessions.lock().expect("mcp sessions");
+        let session = sessions.get_mut(id)?;
+        if let Some(model) = model_id {
+            session.model_id = model.trim().to_string();
+        }
+        if let Some(voice) = voice_id {
+            session.voice_id = voice.trim().to_string();
+        }
+        session.last_seen = Instant::now();
+        let clone = session.clone();
+        drop(sessions);
+        self.emit_sessions();
+        Some(clone)
+    }
+
     fn enqueue(&self, id: &str, text: String) -> Result<InboxItem, String> {
         self.prune();
         let mut sessions = self.sessions.lock().expect("mcp sessions");
@@ -226,6 +253,8 @@ impl McpState {
                     "id": s.id,
                     "name": s.name,
                     "topic": s.topic,
+                    "modelId": s.model_id,
+                    "voiceId": s.voice_id,
                     "pending": s.inbox.len()
                 })
             })
@@ -438,6 +467,8 @@ fn handle_http(
         Ok(RpcAction::Respond(value)) => value,
         Ok(RpcAction::Call { id, name, arguments }) => match name.as_str() {
             "set_session" => handle_set_session(state, &session_id, id, arguments),
+            "set_character" => handle_set_character(state, &session_id, id, arguments),
+            "set_voice" => handle_set_voice(state, &session_id, id, arguments),
             "take_user_message" => handle_take(state, &session_id, id),
             other => {
                 let session = state.get(&session_id);
@@ -475,6 +506,58 @@ fn handle_set_session(state: &McpState, session_id: &str, id: Value, arguments: 
                     "id": session.id,
                     "name": session.name,
                     "topic": session.topic
+                }),
+                false,
+            ),
+        ),
+        None => jsonrpc_error(id, -32000, "session gone".into()),
+    }
+}
+
+fn handle_set_character(state: &McpState, session_id: &str, id: Value, arguments: Value) -> Value {
+    let model_id = arguments
+        .get("modelId")
+        .or_else(|| arguments.get("model"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty());
+    let Some(model_id) = model_id else {
+        return jsonrpc_error(id, -32602, "modelId is required".into());
+    };
+    match state.set_appearance(session_id, Some(model_id), None) {
+        Some(session) => jsonrpc_result(
+            id,
+            wrap_tool_result(
+                json!({
+                    "id": session.id,
+                    "modelId": session.model_id,
+                    "voiceId": session.voice_id
+                }),
+                false,
+            ),
+        ),
+        None => jsonrpc_error(id, -32000, "session gone".into()),
+    }
+}
+
+fn handle_set_voice(state: &McpState, session_id: &str, id: Value, arguments: Value) -> Value {
+    let voice_id = arguments
+        .get("voiceId")
+        .or_else(|| arguments.get("voice"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty());
+    let Some(voice_id) = voice_id else {
+        return jsonrpc_error(id, -32602, "voiceId is required".into());
+    };
+    match state.set_appearance(session_id, None, Some(voice_id)) {
+        Some(session) => jsonrpc_result(
+            id,
+            wrap_tool_result(
+                json!({
+                    "id": session.id,
+                    "modelId": session.model_id,
+                    "voiceId": session.voice_id
                 }),
                 false,
             ),
@@ -527,6 +610,7 @@ fn call_webview(
         session_id: session.map(|s| s.id.clone()).unwrap_or_default(),
         speaker_name: session.map(|s| s.name.clone()).unwrap_or_default(),
         speaker_topic: session.map(|s| s.topic.clone()).unwrap_or_default(),
+        speaker_voice: session.map(|s| s.voice_id.clone()).unwrap_or_default(),
         arguments,
     };
 
@@ -755,6 +839,28 @@ fn tools_list() -> Value {
                 "inputSchema": { "type": "object", "properties": {} }
             },
             {
+                "name": "set_character",
+                "description": "Pick a VRM from the user's gallery for this session's avatar (modelId or name, e.g. Tsuki). Applied when multi-character MCP is active; stored even in single-character mode.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "modelId": { "type": "string", "description": "Gallery model id or display name." }
+                    },
+                    "required": ["modelId"]
+                }
+            },
+            {
+                "name": "set_voice",
+                "description": "TTS voice id for this session's speak() calls (OmniVoice voice profile id, etc.).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "voiceId": { "type": "string" }
+                    },
+                    "required": ["voiceId"]
+                }
+            },
+            {
                 "name": "speak",
                 "description": "Have the avatar say a line (TTS + lip-sync + bubble). Put only the spoken payload in text. Does not call her LLM.",
                 "inputSchema": {
@@ -788,7 +894,8 @@ fn parse_tool_call(params: Option<&Value>) -> Result<(String, Value), String> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| "missing tool name".to_string())?;
     match name {
-        "speak" | "stop_speech" | "get_status" | "set_session" | "take_user_message" => {
+        "speak" | "stop_speech" | "get_status" | "set_session" | "set_character" | "set_voice"
+        | "take_user_message" => {
             Ok((name.to_string(), params.get("arguments").cloned().unwrap_or_else(|| json!({}))))
         }
         other => Err(format!("unknown tool: {other}")),
@@ -861,6 +968,8 @@ mod tests {
                     .map(|t| t["name"].as_str().unwrap())
                     .collect();
                 assert!(names.contains(&"set_session"));
+                assert!(names.contains(&"set_character"));
+                assert!(names.contains(&"set_voice"));
                 assert!(names.contains(&"take_user_message"));
                 assert!(names.contains(&"speak"));
             }

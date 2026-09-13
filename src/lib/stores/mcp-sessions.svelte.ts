@@ -1,5 +1,6 @@
 import { isTauri } from '$lib/services/platform';
 import { chatStore } from '$lib/stores/chat.svelte';
+import { vrmStore } from '$lib/stores/vrm.svelte';
 
 const hasWindow = typeof window !== 'undefined';
 
@@ -13,6 +14,8 @@ export interface McpClientSession {
 	id: string;
 	name: string;
 	topic: string;
+	modelId: string;
+	voiceId: string;
 	pending: number;
 }
 
@@ -27,6 +30,8 @@ function normalizeList(raw: unknown): McpClientSession[] {
 			id: obj.id,
 			name: typeof obj.name === 'string' && obj.name ? obj.name : 'Host',
 			topic: typeof obj.topic === 'string' ? obj.topic : '',
+			modelId: typeof obj.modelId === 'string' ? obj.modelId : '',
+			voiceId: typeof obj.voiceId === 'string' ? obj.voiceId : '',
 			pending: typeof obj.pending === 'number' ? obj.pending : 0
 		});
 	}
@@ -41,17 +46,44 @@ function pickDefault(list: McpClientSession[], current: string | null): string |
 	return waiting?.id ?? list[0]?.id ?? null;
 }
 
+function resolveGalleryModel(hint: string | undefined) {
+	if (!hint) return vrmStore.getActiveModel();
+	const lower = hint.toLowerCase();
+	return (
+		vrmStore.models.find((m) => m.id === hint || m.name.toLowerCase() === lower) ??
+		vrmStore.getActiveModel()
+	);
+}
+
+function syncSessionAvatars(list: McpClientSession[]) {
+	const ids = new Set(list.map((s) => s.id));
+	for (const session of list) {
+		const model = resolveGalleryModel(session.modelId);
+		const existing = vrmStore.instances.find((inst) => inst.id === session.id);
+		if (!existing) {
+			vrmStore.spawnInstance(session.id, { modelId: model?.id, url: model?.url });
+		} else if (model && existing.modelId !== model.id) {
+			vrmStore.setInstanceModel(session.id, model.id);
+		}
+	}
+	for (const inst of vrmStore.instances) {
+		if (!inst.isPrimary && !ids.has(inst.id)) vrmStore.despawnInstance(inst.id);
+	}
+}
+
 function createMcpSessionsStore() {
 	let sessions = $state<McpClientSession[]>([]);
 	let selectedId = $state<string | null>(null);
 	let hostName = $state('Host');
 	let pendingWait: { sessionId: string; hooks: McpWaitHooks } | null = null;
+	let spawnAvatars = false;
 
 	function applyList(list: McpClientSession[]) {
 		sessions = list;
 		const next = pickDefault(list, selectedId);
 		if (next !== selectedId) selectedId = next;
 		if (hasWindow && selectedId) localStorage.setItem(SELECTED_KEY, selectedId);
+		if (spawnAvatars) syncSessionAvatars(list);
 	}
 
 	function select(id: string) {
@@ -81,7 +113,8 @@ function createMcpSessionsStore() {
 		pendingWait = null;
 	}
 
-	async function start(): Promise<() => void> {
+	async function start(opts?: { spawnAvatars?: boolean }): Promise<() => void> {
+		spawnAvatars = opts?.spawnAvatars === true;
 		if (!hasWindow || !isTauri()) return () => {};
 
 		const { listen } = await import('@tauri-apps/api/event');

@@ -69,6 +69,15 @@ test('plainFromArgs is true only for boolean true', () => {
 	assert.equal(plainFromArgs({}), false);
 });
 
+test('parseMcpCommand accepts set_character', () => {
+	const parsed = parseMcpCommand({
+		id: 'mcp-3',
+		tool: 'set_character',
+		arguments: { modelId: 'default-vita' }
+	});
+	assert.ok(!('error' in parsed));
+});
+
 test('parseMcpCommand keeps session speaker fields', () => {
 	const parsed = parseMcpCommand({
 		id: 'mcp-4',
@@ -83,5 +92,6 @@ test('parseMcpCommand keeps session speaker fields', () => {
 	assert.equal(parsed.sessionId, 'sess-1');
 	assert.equal(parsed.speakerName, 'Shizuku');
 	assert.equal(parsed.speakerTopic, 'utsuwa MCP chat');
+	assert.equal(parsed.speakerVoice, undefined);
 	assert.equal(plainFromArgs(parsed.arguments), true);
 });

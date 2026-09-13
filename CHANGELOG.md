@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Desktop MCP control server**: the running app listens on `http://127.0.0.1:8787/mcp` (loopback only) and exposes `set_session`, `take_user_message`, `speak`, `stop_speech`, and `get_status` so an MCP client can puppet the avatar — speech bubble, TTS, and lip-sync — without going through her LLM. Each client is a named session (machine name + short topic). Override the bind address with `UTSUWA_MCP_BIND`. See the [Desktop Guide](https://docs.utsuwa.ai/docs/guides/desktop-guide).
 - **MCP Mode**: Chat (LLM) can use a connected MCP client instead of a model. The chat bar shows a session picker (name + topic); replies are spoken through a configurable template such as `${name} says: ${message}`.
 - **MCP client instructions**: connecting agents always get hardcoded usage rules (poll the chat bar, payload-only speak, no dumps). A Preferences field under Settings > Chat (LLM) > MCP notifications overlays tone and frequency. The speak template field is no longer in that UI; phrasing lives in the preferences prompt.
+- **Per-session avatars (MCP)**: each connected session can `set_character` / `set_voice` and is spawned as its own VRM in the main window. Speech and lip-sync run on that instance; TTS stays one-at-a-time.
 
 ### Fixed
 - MCP `speak` no longer plays the same line twice (main window and overlay each ran TTS).
