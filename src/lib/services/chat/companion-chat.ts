@@ -250,6 +250,7 @@ export async function sendCompanionMessage(
 			if (!sessionId) {
 				throw new Error('No MCP session selected. Connect a client, then pick it in the chat bar.');
 			}
+			mcpSessionsStore.cancelWait();
 			mcpSessionsStore.beginWait(sessionId, hooks);
 			try {
 				const { invoke } = await import('@tauri-apps/api/core');
@@ -258,7 +259,8 @@ export async function sendCompanionMessage(
 				mcpSessionsStore.cancelWait();
 				throw err;
 			}
-			holdLoading = true;
+			// Keep typing until that session speaks, but do not lock the input.
+			chatStore.setLoading(false);
 			return;
 		}
 
