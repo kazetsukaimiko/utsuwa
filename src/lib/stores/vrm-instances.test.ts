@@ -4,6 +4,7 @@ import {
 	PRIMARY_INSTANCE_ID,
 	sceneInstances,
 	defaultPositionForSlot,
+	centeredSlot,
 	upsertExtraInstance,
 	removeExtraInstance,
 	isPrimaryInstance,
@@ -21,6 +22,13 @@ test('sceneInstances always leads with the primary avatar', () => {
 	assert.equal(list[0].isPrimary, true);
 	assert.equal(list[1].id, 'sess-1');
 	assert.equal(list[1].isPrimary, false);
+});
+
+test('centeredSlot puts a single extra at the origin', () => {
+	assert.deepEqual(centeredSlot(0, 1, 0.8), { x: 0, y: 0, z: 0 });
+	assert.deepEqual(centeredSlot(0, 2, 0.8), { x: -0.4, y: 0, z: 0 });
+	assert.deepEqual(centeredSlot(1, 2, 0.8), { x: 0.4, y: 0, z: 0 });
+	assert.deepEqual(centeredSlot(1, 3, 1), { x: 0, y: 0, z: 0 });
 });
 
 test('defaultPositionForSlot alternates right then left', () => {

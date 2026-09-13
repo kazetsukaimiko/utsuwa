@@ -21,6 +21,8 @@
 	import { vrmStore } from '$lib/stores/vrm.svelte';
 	import { inwardFacingYaw, slotSpacingFromScale } from '$lib/stores/vrm-instances';
 	import { displayStore } from '$lib/stores/display.svelte';
+	import { modulesStore } from '$lib/stores/modules.svelte';
+	import { isMcpProvider } from '$lib/services/mcp-mode';
 	import { photomodeStore, type CaptureOptions } from '$lib/stores/photomode.svelte';
 	import { bucketTouchZone } from '$lib/services/photo-touch';
 	import {
@@ -68,6 +70,9 @@
 	let { centered = false, locked = false, overlay = false }: Props = $props();
 
 	const sceneInstances = $derived(vrmStore.instances);
+	const mcpMode = $derived(
+		isMcpProvider(modulesStore.getModuleSettings('consciousness').activeProvider as string)
+	);
 
 	const { camera, renderer, scene } = useThrelte();
 	const { isPresenting } = useXR();
@@ -334,7 +339,8 @@
 
 	$effect(() => {
 		vrmStore.setSlotSpacing(
-			slotSpacingFromScale(camSettings.multiCharacterDistance, vrmStore.characterWidth)
+			slotSpacingFromScale(camSettings.multiCharacterDistance, vrmStore.characterWidth),
+			mcpMode
 		);
 	});
 
@@ -448,7 +454,7 @@
      Slot offset lives on a parent group so normalizeModel can keep feet on the floor. -->
 <T.Group bind:ref={modelRoot}>
 	{#each sceneInstances as inst (inst.id)}
-		{#if inst.url}
+		{#if inst.url && !(mcpMode && inst.isPrimary)}
 			<T.Group
 				position.x={inst.position.x}
 				position.y={inst.position.y}

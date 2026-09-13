@@ -45,6 +45,17 @@ export function defaultPositionForSlot(
 	return { x, y: 0, z: 0 };
 }
 
+/** Line extras up on X, centered on the origin (one session sits at 0). */
+export function centeredSlot(
+	index: number,
+	count: number,
+	spacing = DEFAULT_INSTANCE_SPACING
+): VrmInstancePose {
+	if (count <= 1) return { x: 0, y: 0, z: 0 };
+	const origin = (count - 1) / 2;
+	return { x: (index - origin) * spacing, y: 0, z: 0 };
+}
+
 export function upsertExtraInstance(
 	extras: VrmExtraInstance[],
 	inst: VrmExtraInstance

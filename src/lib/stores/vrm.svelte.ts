@@ -9,6 +9,7 @@ import {
 	DEFAULT_INSTANCE_SPACING,
 	sceneInstances,
 	defaultPositionForSlot,
+	centeredSlot,
 	upsertExtraInstance,
 	removeExtraInstance,
 	isPrimaryInstance,
@@ -143,6 +144,7 @@ function createVrmStore() {
 	let extraHeadScreen = $state<Record<string, { x: number; y: number } | null>>({});
 	let instanceLoadGen = $state(0);
 	let slotSpacing = $state(DEFAULT_INSTANCE_SPACING);
+	let extrasCentered = $state(false);
 	let characterWidth = $state(0.7);
 
 	function notifyInstanceLoaded() {
@@ -493,8 +495,9 @@ function createVrmStore() {
 			id,
 			modelId: opts?.modelId ?? fromId?.id ?? activeModelId,
 			url: opts?.url ?? fromId?.url ?? modelUrl,
-			position: opts?.position ?? defaultPositionForSlot(extraInstances.length, slotSpacing)
+			position: opts?.position ?? extraSlot(extraInstances.length, extraInstances.length + 1)
 		});
+		relayoutExtras();
 	}
 
 	function setInstanceModel(id: string, modelId: string): void {
@@ -519,18 +522,31 @@ function createVrmStore() {
 		extraInstances = upsertExtraInstance(extraInstances, { ...current, position });
 	}
 
-	function setSlotSpacing(spacing: number): void {
-		const next = Math.max(0, spacing);
-		if (Math.abs(next - slotSpacing) < 0.0001) return;
-		slotSpacing = next;
+	function extraSlot(index: number, count = extraInstances.length): VrmInstancePose {
+		return extrasCentered
+			? centeredSlot(index, count, slotSpacing)
+			: defaultPositionForSlot(index, slotSpacing);
+	}
+
+	function relayoutExtras(): void {
 		extraInstances = extraInstances.map((inst, i) => ({
 			...inst,
-			position: defaultPositionForSlot(i, slotSpacing)
+			position: extraSlot(i, extraInstances.length)
 		}));
+	}
+
+	function setSlotSpacing(spacing: number, centered?: boolean): void {
+		const next = Math.max(0, spacing);
+		const nextCentered = centered ?? extrasCentered;
+		if (Math.abs(next - slotSpacing) < 0.0001 && nextCentered === extrasCentered) return;
+		slotSpacing = next;
+		extrasCentered = nextCentered;
+		relayoutExtras();
 	}
 
 	function despawnInstance(id: string): void {
 		extraInstances = removeExtraInstance(extraInstances, id);
+		relayoutExtras();
 		if (talkingInstanceId === id) talkingInstanceId = PRIMARY_INSTANCE_ID;
 		const { [id]: _talk, ...restTalk } = extraTalking;
 		extraTalking = restTalk;
