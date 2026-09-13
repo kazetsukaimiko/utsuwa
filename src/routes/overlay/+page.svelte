@@ -21,6 +21,7 @@
 	import { personaStore } from '$lib/stores/persona.svelte';
 	import { overlayStore } from '$lib/stores/overlay.svelte';
 	import { isTauri, startDragging } from '$lib/services/platform';
+	import { startMcpBridge } from '$lib/services/mcp-control';
 	import { sendCompanionMessage, type SendCompanionMessageOptions } from '$lib/services/chat/companion-chat';
 	import { type ThinkingPhase } from '$lib/services/chat/chat-phase';
 	import { createReminderFiredHandler } from '$lib/services/chat/reminder-chat';
@@ -172,6 +173,22 @@
 		if (debugEvent) {
 			activeEvent = debugEvent;
 		}
+	});
+
+	// Desktop MCP puppet bridge. The backend only emits to this window when
+	// the overlay is visible, so the main window does not also speak.
+	$effect(() => {
+		if (!isTauri()) return;
+		let cancelled = false;
+		let stop: (() => void) | undefined;
+		startMcpBridge({ setLatestResponse: (v) => (latestResponse = v) }).then((unlisten) => {
+			if (cancelled) unlisten();
+			else stop = unlisten;
+		});
+		return () => {
+			cancelled = true;
+			stop?.();
+		};
 	});
 	// Start reminder polling in the overlay too, so timers fire even when the
 	// main app window is hidden. Fired reminders are sent back through the LLM

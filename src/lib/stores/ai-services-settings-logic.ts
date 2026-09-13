@@ -32,6 +32,9 @@ export function isProviderReadyForFetch(
 	provider: ProviderMetadata,
 	config: ProviderConfig
 ): boolean {
+	if (provider.id === 'mcp') {
+		return false;
+	}
 	if (provider.custom) {
 		return !!config.baseUrl;
 	}

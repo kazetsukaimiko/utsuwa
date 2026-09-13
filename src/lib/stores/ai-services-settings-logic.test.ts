@@ -74,6 +74,16 @@ test('isProviderReadyForFetch requires base URL for custom endpoints', () => {
 	assert.equal(isProviderReadyForFetch(customProvider, { baseUrl: 'http://localhost/v1' }), true);
 });
 
+test('isProviderReadyForFetch never fetches models for MCP Mode', () => {
+	const mcpProvider: ProviderMetadata = {
+		id: 'mcp',
+		name: 'MCP Mode',
+		category: 'llm',
+		requiresApiKey: false
+	} as ProviderMetadata;
+	assert.equal(isProviderReadyForFetch(mcpProvider, {}), false);
+});
+
 test('createFetchSignature is stable for same inputs', () => {
 	assert.equal(createFetchSignature('ollama', 'http://localhost:11434'), 'ollama:http://localhost:11434');
 	assert.equal(createFetchSignature('ollama', undefined), 'ollama:');

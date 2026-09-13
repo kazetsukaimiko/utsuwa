@@ -66,12 +66,28 @@ export const consciousnessModule: ModuleDefinition = {
 				label: 'Frequency Penalty',
 				description: 'Penalizes tokens based on how often they appeared (-2.0 to 2.0)',
 				defaultValue: 0
+			},
+			{
+				key: 'mcpSpeakTemplate',
+				type: 'text',
+				label: 'MCP speak template',
+				description:
+					'Unused. Spoken lines use the client payload; phrasing lives in MCP preferences.',
+				defaultValue: '${name} says: ${message}'
+			},
+			{
+				key: 'mcpInstructions',
+				type: 'textarea',
+				label: 'MCP preferences',
+				description:
+					'User overlay on hardcoded MCP usage rules: tone, frequency, and what a spoken line should sound like.',
+				defaultValue: ''
 			}
 		]
 	},
 
 	isConfigured(settings: Record<string, unknown>): boolean {
-		// Consciousness is configured if a provider is selected
+		if (settings.activeProvider === 'mcp') return true;
 		return !!settings.activeProvider && !!settings.activeModel;
 	},
 

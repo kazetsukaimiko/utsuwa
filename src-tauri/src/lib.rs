@@ -1,5 +1,8 @@
 use tauri::Manager;
 
+#[cfg(desktop)]
+mod mcp;
+
 #[tauri::command]
 fn show_overlay(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("overlay") {
@@ -39,11 +42,28 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init());
 
-    builder
+    #[cfg(desktop)]
+    let builder = builder
+        .manage(mcp::McpState::new())
         .invoke_handler(tauri::generate_handler![
             show_overlay,
-            toggle_overlay
+            toggle_overlay,
+            mcp::mcp_reply,
+            mcp::mcp_list_sessions,
+            mcp::mcp_enqueue_user,
+            mcp::mcp_host_name,
+            mcp::mcp_set_instructions
         ])
+        .setup(|app| {
+            let state = app.state::<mcp::McpState>().inner().clone();
+            mcp::start(app.handle().clone(), state);
+            Ok(())
+        });
+
+    #[cfg(not(desktop))]
+    let builder = builder.invoke_handler(tauri::generate_handler![show_overlay, toggle_overlay]);
+
+    builder
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -4,6 +4,12 @@
 	import { Icon, ProviderDropdown, ModelDropdown, ContextSizeSlider } from '$lib/components/ui';
 	import { DOCS_URL } from '$lib/config/site';
 	import { isTauri } from '$lib/services/platform';
+	import {
+		DEFAULT_MCP_USER_INSTRUCTIONS,
+		isLegacyMcpInstructions,
+		resolveMcpUserInstructions
+	} from '$lib/services/mcp-mode';
+	import { syncMcpInstructions } from '$lib/services/mcp-control';
 	import type { LlmSettingsState } from '$lib/stores/ai-services-settings.svelte';
 	import './ai-services-settings.css';
 
@@ -20,6 +26,30 @@
 
 	function handleContextSizeChange(value: number | undefined) {
 		state.handleLLMNumberSetting('contextSize', value);
+	}
+
+	const mcpInstructionsValue = $derived.by(() => {
+		const stored = state.consciousnessSettings.mcpInstructions as string | undefined;
+		if (stored == null || isLegacyMcpInstructions(stored)) return DEFAULT_MCP_USER_INSTRUCTIONS;
+		return stored;
+	});
+
+	function handleMcpInstructionsInput(value: string) {
+		state.handleLLMStringSetting('mcpInstructions', value);
+	}
+
+	function handleMcpInstructionsBlur() {
+		const raw = state.consciousnessSettings.mcpInstructions as string | undefined;
+		const resolved = resolveMcpUserInstructions(raw);
+		if ((raw ?? '') !== resolved) {
+			state.handleLLMStringSetting('mcpInstructions', resolved);
+		}
+		void syncMcpInstructions(resolved);
+	}
+
+	function resetMcpInstructions() {
+		state.handleLLMStringSetting('mcpInstructions', DEFAULT_MCP_USER_INSTRUCTIONS);
+		void syncMcpInstructions(DEFAULT_MCP_USER_INSTRUCTIONS);
 	}
 </script>
 
@@ -61,6 +91,12 @@
 		{#if state.consciousnessSettings.activeProvider}
 			{@const provider = getLLMProvider(state.consciousnessSettings.activeProvider as string)}
 
+			{#if provider?.id === 'mcp'}
+				<p class="provider-note">
+					MCP Mode routes the chat bar to a connected desktop MCP client (Grok Build, etc.). Pick
+					the session in the chat bar. The character does not call an LLM of her own.
+				</p>
+			{:else}
 			{#if provider?.requiresApiKey || provider?.custom}
 				<div class="api-key-row">
 					<input
@@ -244,18 +280,50 @@
 				onChange={handleContextSizeChange}
 				id="llm-context-size-toggle"
 			/>
+			{/if}
 		{/if}
 	{/if}
 </div>
+
+{#if isTauri()}
+	<div class="service-group">
+		<div class="service-header">
+			<Icon name="message-circle" size={14} />
+			<span>MCP notifications</span>
+		</div>
+		<p class="provider-note">
+			Clients always get hardcoded usage rules (poll the chat bar, payload-only speak, no dumps).
+			This box is your overlay: tone, how often, and what a spoken line should sound like.
+		</p>
+		<label class="llm-param-label" for="mcp-instructions">Preferences</label>
+		<textarea
+			id="mcp-instructions"
+			class="api-key-input mcp-instructions"
+			rows="10"
+			value={mcpInstructionsValue}
+			oninput={(e) => handleMcpInstructionsInput(e.currentTarget.value)}
+			onblur={handleMcpInstructionsBlur}
+		></textarea>
+		<div class="mcp-instructions-foot">
+			<button type="button" class="mcp-reset" onclick={resetMcpInstructions}>Reset to default</button>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.provider-note {
 		display: flex;
 		align-items: center;
+		flex-wrap: wrap;
 		gap: 0.375rem;
 		margin: 0;
 		font-size: 0.75rem;
+		line-height: 1.45;
 		color: var(--text-tertiary);
+	}
+
+	.provider-note :global(code) {
+		font-size: 0.7rem;
 	}
 
 	.provider-note :global(svg) {
@@ -321,6 +389,32 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.35rem;
+	}
+
+	.mcp-instructions {
+		min-height: 12rem;
+		resize: vertical;
+		line-height: 1.45;
+		white-space: pre-wrap;
+	}
+
+	.mcp-instructions-foot {
+		display: flex;
+		justify-content: flex-end;
+	}
+
+	.mcp-reset {
+		border: none;
+		background: transparent;
+		color: var(--text-tertiary);
+		font-family: inherit;
+		font-size: 0.75rem;
+		cursor: pointer;
+		padding: 0.15rem 0;
+	}
+
+	.mcp-reset:hover {
+		color: var(--text-secondary);
 	}
 
 	.llm-param-label {

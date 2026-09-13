@@ -11,6 +11,10 @@
 	import { type PreparedImage } from '$lib/services/storage/keepsakes';
 	import { chatDraftStore } from '$lib/stores/chat-draft.svelte';
 	import ChatInput from './ChatInput.svelte';
+	import McpSessionDropdown from './McpSessionDropdown.svelte';
+	import { modulesStore } from '$lib/stores/modules.svelte';
+	import { isMcpProvider } from '$lib/services/mcp-mode';
+	import { isTauri } from '$lib/services/platform';
 
 	interface Props {
 		open: boolean;
@@ -33,6 +37,10 @@
 	}: Props = $props();
 
 	const moodInfo = $derived(characterStore.moodInfo);
+	const mcpMode = $derived(
+		isTauri() &&
+			isMcpProvider(modulesStore.getModuleSettings('consciousness').activeProvider as string)
+	);
 
 	let messagesEl: HTMLDivElement | null = $state(null);
 	let scrollRaf: number | null = null;
@@ -348,6 +356,11 @@
 	</div>
 
 	<div class="input-dock">
+		{#if mcpMode}
+			<div class="mcp-picker">
+				<McpSessionDropdown />
+			</div>
+		{/if}
 		<ChatInput {onSend} {disabled} {visionCapable} docked />
 	</div>
 
@@ -591,6 +604,10 @@
 		padding: 0.5rem 0.625rem;
 		border-top: 1px solid var(--border-subtle);
 		background: var(--bg-secondary);
+	}
+
+	.mcp-picker {
+		margin-bottom: 0.4rem;
 	}
 
 	/* Drag-to-show target while the window owns the input */

@@ -50,6 +50,7 @@
 	import { reminderStore } from '$lib/stores/reminders.svelte';
 	import { type PreparedImage } from '$lib/services/storage/keepsakes';
 	import { isTauri } from '$lib/services/platform';
+	import { startMcpBridge } from '$lib/services/mcp-control';
 	import { browser } from '$app/environment';
 	import type { StateUpdates } from '$lib/types/character';
 	import type { EventDefinition } from '$lib/types/events';
@@ -199,6 +200,21 @@
 		if (debugEvent) {
 			activeEvent = debugEvent;
 		}
+	});
+
+	// Desktop MCP puppet bridge (loopback HTTP → this window).
+	$effect(() => {
+		if (!isTauri()) return;
+		let cancelled = false;
+		let stop: (() => void) | undefined;
+		startMcpBridge({ setLatestResponse: (v) => (latestResponse = v) }).then((unlisten) => {
+			if (cancelled) unlisten();
+			else stop = unlisten;
+		});
+		return () => {
+			cancelled = true;
+			stop?.();
+		};
 	});
 
 	// Start reminder polling and react to fired reminders by sending them back

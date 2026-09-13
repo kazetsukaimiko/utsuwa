@@ -66,7 +66,8 @@ test('companion chat preserves native speech across direct and hosted state bloc
 			export const getWorkingMemory = () => ({}); export const ensureSession = async () => null;`,
 		'src/lib/services/storage/keepsakes': 'export const keepImage = async () => {};',
 		'src/lib/services/platform': 'export const isTauri = () => globalThis.__utsuwaChatIntegration.isTauri();',
-		'src/lib/services/chat/companion-turn': 'export const processCompanionTurn = (...args) => globalThis.__utsuwaChatIntegration.processCompanionTurn(...args);'
+		'src/lib/services/chat/companion-turn': 'export const processCompanionTurn = (...args) => globalThis.__utsuwaChatIntegration.processCompanionTurn(...args);',
+		'src/lib/stores/mcp-sessions.svelte': `export const mcpSessionsStore = { selectedId: null, beginWait() {}, cancelWait() {}, completeWait() { return false; } };`
 	};
 	for (const [path, name] of Object.entries({
 		chat: 'chatStore', character: 'characterStore', persona: 'personaStore', settings: 'settingsStore',

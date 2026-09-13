@@ -111,6 +111,15 @@ export const LLM_PROVIDERS: ProviderMetadata[] = [
 		requiresApiKey: false,
 		custom: true,
 		models: []
+	},
+	{
+		id: 'mcp',
+		name: 'MCP Mode',
+		description: 'Route the chat bar to a connected MCP client (Grok Build, etc.)',
+		category: 'llm',
+		icon: '🔗',
+		requiresApiKey: false,
+		models: [{ id: 'mcp', name: 'MCP client' }]
 	}
 ];
 

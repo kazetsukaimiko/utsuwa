@@ -39,6 +39,7 @@
 		{ id: 'cloud-additional', label: 'Cloud Additional', providers: ['cerebras', 'fireworks', 'novita', '302ai', 'comet'] },
 		{ id: 'aggregators', label: 'Aggregators', providers: ['openrouter', 'openai-compatible'] },
 		{ id: 'local', label: 'Local', providers: ['ollama', 'lmstudio', 'vllm', 'player2'] },
+		{ id: 'desktop', label: 'Desktop', providers: ['mcp'] },
 		{ id: 'enterprise', label: 'Enterprise', providers: ['azure', 'cloudflare'] }
 	];
 

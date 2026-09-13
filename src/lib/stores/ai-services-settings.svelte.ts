@@ -133,7 +133,16 @@ export function createLlmSettingsState() {
 
 	const debouncedFetchLLMModels = debounce(fetchLLMModels, 300);
 
+	function handleLLMStringSetting(key: string, value: string) {
+		modulesStore.setModuleSetting('consciousness', key, value);
+	}
+
 	function handleLLMProviderChange(providerId: string) {
+		if ((consciousnessSettings.activeProvider as string) === 'mcp' && providerId !== 'mcp') {
+			void import('$lib/stores/mcp-sessions.svelte').then(({ mcpSessionsStore }) => {
+				mcpSessionsStore.cancelWait();
+			});
+		}
 		modulesStore.setModuleSetting('consciousness', 'activeProvider', providerId);
 		const provider = getLLMProvider(providerId);
 
@@ -222,6 +231,7 @@ export function createLlmSettingsState() {
 		debouncedFetchLLMModels,
 		handleLLMProviderChange,
 		handleLLMNumberSetting,
+		handleLLMStringSetting,
 		handleLLMModelChange,
 		handleLLMBaseUrlChange,
 		handleApiKeyChange,

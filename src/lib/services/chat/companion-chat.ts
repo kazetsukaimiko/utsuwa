@@ -35,6 +35,8 @@ import { toOpenAIContent, type ContentPart } from '$lib/services/chat/content';
 import { pseudoCallFromTool } from '$lib/services/tts/speech-compiler';
 import { shouldUseSpeechTools } from '$lib/services/tts/tool-definitions';
 import { isTauri } from '$lib/services/platform';
+import { isMcpProvider } from '$lib/services/mcp-mode';
+import { mcpSessionsStore } from '$lib/stores/mcp-sessions.svelte';
 import type { LLMProvider, TTSProvider } from '$lib/types';
 import type { EventDefinition } from '$lib/types/events';
 
@@ -186,6 +188,24 @@ export async function sendCompanionMessage(
 		return;
 	}
 
+	const consciousnessSettings = modulesStore.getModuleSettings('consciousness');
+	const provider = consciousnessSettings.activeProvider as string;
+
+	if (isMcpProvider(provider)) {
+		if (images.length > 0) {
+			chatStore.setError("MCP Mode doesn't take photos — send text only.");
+			return;
+		}
+		if (!isTauri()) {
+			chatStore.setError('MCP Mode is only available in the desktop app.');
+			return;
+		}
+		if (!mcpSessionsStore.selectedId) {
+			chatStore.setError('No MCP session selected. Connect a client, then pick it in the chat bar.');
+			return;
+		}
+	}
+
 	const shown = images.map((img) => ({ id: img.id, url: URL.createObjectURL(img.blob) }));
 
 	if (!systemEvent) {
@@ -207,6 +227,9 @@ export async function sendCompanionMessage(
 	// Tracks whether an OmniVoice streaming TTS session was started for this
 	// turn. Declared here so the error path can cancel it.
 	let streamingTTS = false;
+	// MCP Mode waits for the selected client to speak; leave the typing
+	// indicator up until that speak (or a provider switch) arrives.
+	let holdLoading = false;
 
 	// Only touch relationship-time state once the character has loaded, or an
 	// early message would mutate the default state that load then discards.
@@ -217,11 +240,26 @@ export async function sendCompanionMessage(
 	}
 
 	try {
-		const consciousnessSettings = modulesStore.getModuleSettings('consciousness');
-		const provider = consciousnessSettings.activeProvider as string;
 		const model = consciousnessSettings.activeModel as string;
 		if (!provider) {
 			throw new Error('Please configure a provider in Settings > Modules > Consciousness');
+		}
+
+		if (isMcpProvider(provider)) {
+			const sessionId = mcpSessionsStore.selectedId;
+			if (!sessionId) {
+				throw new Error('No MCP session selected. Connect a client, then pick it in the chat bar.');
+			}
+			mcpSessionsStore.beginWait(sessionId, hooks);
+			try {
+				const { invoke } = await import('@tauri-apps/api/core');
+				await invoke('mcp_enqueue_user', { sessionId, text: content });
+			} catch (err) {
+				mcpSessionsStore.cancelWait();
+				throw err;
+			}
+			holdLoading = true;
+			return;
 		}
 
 		const contextSize = (consciousnessSettings.contextSize as number | undefined) || undefined;
@@ -596,6 +634,6 @@ if (speechState?.enabled && !streamingTTS) {
 		chatStore.setError(err instanceof Error ? err.message : 'Unknown error');
 		hooks.setTyping(false);
 	} finally {
-		chatStore.setLoading(false);
+		if (!holdLoading) chatStore.setLoading(false);
 	}
 }

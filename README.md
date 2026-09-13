@@ -116,6 +116,7 @@ A native desktop app built with Tauri that includes all web features plus:
 - **Floating Chat**: Expandable chat input that appears when you click the chat icon, with replies in a readable docked bubble
 - **Window Switching**: Seamlessly switch between the full app and overlay mode
 - **Global Hotkeys**: Push-to-talk, toggle overlay, and focus chat with keyboard shortcuts
+- **MCP control (desktop)**: a loopback MCP server at `http://127.0.0.1:8787/mcp` so a local agent can puppet speech, TTS, and lip-sync. See the [Desktop Guide](https://docs.utsuwa.ai/docs/guides/desktop-guide).
 
 The desktop app uses the same codebase as the web version, and your save files are compatible between both.
 

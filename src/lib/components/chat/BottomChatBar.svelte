@@ -11,6 +11,9 @@
 	import { chatDraftStore } from '$lib/stores/chat-draft.svelte';
 	import { type PreparedImage } from '$lib/services/storage/keepsakes';
 	import ChatInput from './ChatInput.svelte';
+	import McpSessionDropdown from './McpSessionDropdown.svelte';
+	import { modulesStore } from '$lib/stores/modules.svelte';
+	import { isMcpProvider } from '$lib/services/mcp-mode';
 	import { pop, fadeFast } from '$lib/utils/motion';
 
 	interface Props {
@@ -56,6 +59,10 @@
 		{ key: 'chats', label: 'Chats', icon: 'message-circle', value: Math.min(charState.totalInteractions, 100), color: 'var(--stat-trust)' }
 	]);
 	const stats = $derived(isCompanionMode ? companionStats : datingStats);
+	const mcpMode = $derived(
+		isTauri() &&
+			isMcpProvider(modulesStore.getModuleSettings('consciousness').activeProvider as string)
+	);
 
 	// Surface voice playback failures; without this a TTS misconfiguration
 	// (like a stale voice id after switching providers) looks like she simply
@@ -259,6 +266,9 @@
 				>
 					<span class="mood-dot" style="color: {moodInfo.color}"><Icon name={moodInfo.icon} size={20} /></span>
 				</button>
+			{/if}
+			{#if mcpMode}
+				<McpSessionDropdown compact />
 			{/if}
 			<ChatInput {onSend} {disabled} {visionCapable} {overlay} />
 		</div>

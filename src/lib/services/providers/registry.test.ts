@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { LLM_PROVIDERS, TTS_PROVIDERS, getTTSProvider, providerSupportsVision } from './registry.ts';
+import {
+	LLM_PROVIDERS,
+	TTS_PROVIDERS,
+	getLLMProvider,
+	getTTSProvider,
+	providerSupportsVision
+} from './registry.ts';
 
 test('local LLM providers rely on discovered installed models', () => {
 	const localProviders = LLM_PROVIDERS.filter((provider) => provider.isLocal);
@@ -36,6 +42,14 @@ test('every TTS provider declares whether it needs an API key', () => {
 	for (const provider of TTS_PROVIDERS) {
 		assert.equal(typeof provider.requiresApiKey, 'boolean', `${provider.name} must declare requiresApiKey`);
 	}
+});
+
+test('MCP Mode is a keyless non-local provider with a static model', () => {
+	const mcp = getLLMProvider('mcp');
+	assert.ok(mcp, 'mcp should be registered');
+	assert.equal(mcp?.isLocal, undefined);
+	assert.equal(mcp?.requiresApiKey, false);
+	assert.deepEqual(mcp?.models, [{ id: 'mcp', name: 'MCP client' }]);
 });
 
 test('vision-capable cloud providers are flagged; text-only and local are not', () => {
