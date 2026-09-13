@@ -5,6 +5,7 @@
 	import { createVRMAnimationClip } from '@pixiv/three-vrm-animation';
 	import { loadVrmAnimation } from '$lib/services/vrm-animations';
 	import { vrmStore } from '$lib/stores/vrm.svelte';
+	import { PRIMARY_INSTANCE_ID, isPrimaryInstance } from '$lib/stores/vrm-instances';
 	import { ttsStore } from '$lib/stores/tts.svelte';
 	import { displayStore } from '$lib/stores/display.svelte';
 	import { photomodeStore } from '$lib/stores/photomode.svelte';
@@ -65,9 +66,11 @@
 
 	interface Props {
 		url: string;
+		instanceId?: string;
+		position?: { x: number; y: number; z: number };
 	}
 
-	let { url }: Props = $props();
+	let { url, instanceId = PRIMARY_INSTANCE_ID, position }: Props = $props();
 	let vrm = $state<VRM | null>(null);
 	let group = $state<THREE.Group | null>(null);
 
@@ -119,7 +122,11 @@
 	let lastIdleIndex = $state(-1); // Track last played idle to avoid repeats
 	const currentAnimation = $derived(vrmStore.currentAnimation);
 	// Talking animation plays when TTS is speaking OR when text-based talking is triggered
-	const shouldTalk = $derived(ttsStore.isSpeaking || vrmStore.isTalking);
+	const isPrimary = $derived(isPrimaryInstance(instanceId));
+	const shouldTalk = $derived(
+		vrmStore.talkingInstanceId === instanceId &&
+			(ttsStore.isSpeaking || vrmStore.isInstanceTalking(instanceId))
+	);
 
 	// === Blinking State ===
 	let blinkTimer = $state(0);
@@ -143,6 +150,11 @@
 	let headTime = $state(0);
 
 	const { renderer, camera } = useThrelte();
+
+	$effect(() => {
+		if (!group || !position) return;
+		group.position.set(position.x, position.y, position.z);
+	});
 
 	// Generate thumbnail from the current 3D render
 	function generateThumbnail(modelId: string | null) {
@@ -601,6 +613,7 @@
 
 	// Play emote animations when currentAnimation changes
 	$effect(() => {
+		if (!isPrimary) return;
 		const animId = currentAnimation;
 		const currentVrm = untrack(() => vrm);
 		const currentMixer = untrack(() => mixer);
@@ -693,14 +706,16 @@
 
 		// Capture the model this load belongs to, so a fast switch can't save this
 		// render under a different model's id.
-		const loadModelId = vrmStore.activeModelId;
+		const loadModelId = isPrimary ? vrmStore.activeModelId : instanceId;
 
 		// Invalidate this load if the URL changes or the component unmounts
 		// before the loader finishes, so a slow load can't clobber a newer one
 		let cancelled = false;
 
-		vrmStore.setLoading(true);
-		vrmStore.setError(null);
+		if (isPrimary) {
+			vrmStore.setLoading(true);
+			vrmStore.setError(null);
+		}
 
 		const loader = new GLTFLoader();
 		loader.crossOrigin = 'anonymous';
@@ -744,10 +759,15 @@
 
 				vrm = loadedVrm;
 				group = loadedVrm.scene;
+				if (position) {
+					group.position.set(position.x, position.y, position.z);
+				}
 				const newMixer = new THREE.AnimationMixer(loadedVrm.scene);
 				mixer = newMixer;
-				vrmStore.setVrm(loadedVrm);
-				vrmStore.setLoading(false);
+				if (isPrimary) {
+					vrmStore.setVrm(loadedVrm);
+					vrmStore.setLoading(false);
+				}
 
 				// Start the looping idle animation
 				startIdleAnimation(loadedVrm, newMixer);
@@ -780,26 +800,28 @@
 					}
 				}
 
-				if (thumbnailImage) {
-					try {
-						const canvas = document.createElement('canvas');
-						const width = thumbnailImage.width || (thumbnailImage as any).naturalWidth || 256;
-						const height = thumbnailImage.height || (thumbnailImage as any).naturalHeight || 256;
-						canvas.width = width;
-						canvas.height = height;
-						const ctx = canvas.getContext('2d');
-						if (ctx) {
-							ctx.drawImage(thumbnailImage as CanvasImageSource, 0, 0);
-							const thumbnailDataUrl = canvas.toDataURL('image/png');
-							vrmStore.setModelPreview(loadModelId, thumbnailDataUrl);
+				if (isPrimary) {
+					if (thumbnailImage) {
+						try {
+							const canvas = document.createElement('canvas');
+							const width = thumbnailImage.width || (thumbnailImage as any).naturalWidth || 256;
+							const height = thumbnailImage.height || (thumbnailImage as any).naturalHeight || 256;
+							canvas.width = width;
+							canvas.height = height;
+							const ctx = canvas.getContext('2d');
+							if (ctx) {
+								ctx.drawImage(thumbnailImage as CanvasImageSource, 0, 0);
+								const thumbnailDataUrl = canvas.toDataURL('image/png');
+								vrmStore.setModelPreview(loadModelId, thumbnailDataUrl);
+							}
+						} catch (e) {
+							console.error('Failed to extract thumbnail:', e);
+							setTimeout(() => generateThumbnail(loadModelId), 500);
 						}
-					} catch (e) {
-						console.error('Failed to extract thumbnail:', e);
+					} else {
+						// No embedded thumbnail - generate one from the 3D render
 						setTimeout(() => generateThumbnail(loadModelId), 500);
 					}
-				} else {
-					// No embedded thumbnail - generate one from the 3D render
-					setTimeout(() => generateThumbnail(loadModelId), 500);
 				}
 
 			},
@@ -807,7 +829,7 @@
 			(error) => {
 				if (cancelled) return;
 				console.error('Error loading VRM:', error);
-				vrmStore.setError('Failed to load VRM model');
+				if (isPrimary) vrmStore.setError('Failed to load VRM model');
 			}
 		);
 
@@ -832,12 +854,12 @@
 			// immediately replay the leftover emote.
 			if (isEmotePlaying) {
 				isEmotePlaying = false;
-				vrmStore.setCurrentAnimation(null);
+				if (isPrimary) vrmStore.setCurrentAnimation(null);
 			}
 			if (vrm) {
 				// Frees geometries, materials, and textures (manual traverse missed textures)
 				VRMUtils.deepDispose(vrm.scene);
-				vrmStore.setVrm(null);
+				if (isPrimary) vrmStore.setVrm(null);
 				vrm = null;
 				group = null;
 				springBase = [];
@@ -1042,7 +1064,7 @@
 			// Convert from NDC (-1 to 1) to screen percentage (0 to 100)
 			const x = (scratchProjected.x + 1) * 50;
 			const y = (-scratchProjected.y + 1) * 50;
-			vrmStore.setHeadScreenPosition({ x, y });
+			vrmStore.setHeadScreenPosition({ x, y }, instanceId);
 		}
 
 		const expressionManager = vrm.expressionManager;
@@ -1106,7 +1128,10 @@
 		expressionManager.update();
 
 		// === Lip-sync Animation ===
-		const visemes = lipSyncAnalyzer.update(delta);
+		// One analyser, one speaker: extras stay idle-mouthed unless they are talking.
+		const visemes = shouldTalk
+			? lipSyncAnalyzer.update(delta)
+			: { aa: 0, ee: 0, ih: 0, oh: 0, ou: 0 };
 
 		// Apply viseme weights - try multiple naming conventions
 		// VRM 1.0 style
