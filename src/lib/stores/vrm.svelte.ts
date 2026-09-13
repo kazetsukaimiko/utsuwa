@@ -139,6 +139,11 @@ function createVrmStore() {
 	// Additional VRM bodies in the scene (not the user's primary avatar).
 	let extraInstances = $state<VrmExtraInstance[]>([]);
 	let extraHeadScreen = $state<Record<string, { x: number; y: number } | null>>({});
+	let instanceLoadGen = $state(0);
+
+	function notifyInstanceLoaded() {
+		instanceLoadGen += 1;
+	}
 
 	// Tap reactions: the scene raycasts a tap into a touch zone and the model
 	// component applies the staged reaction. Universal, not photo-mode-only.
@@ -652,6 +657,9 @@ function createVrmStore() {
 		get instances() {
 			return sceneInstances({ modelId: activeModelId, url: modelUrl }, extraInstances);
 		},
+		get instanceLoadGen() {
+			return instanceLoadGen;
+		},
 		get reactionRequest() {
 			return reactionRequest;
 		},
@@ -687,6 +695,7 @@ function createVrmStore() {
 		setInstanceModel,
 		setInstancePosition,
 		despawnInstance,
+		notifyInstanceLoaded,
 		addModel,
 		removeModel,
 		getActiveModel,

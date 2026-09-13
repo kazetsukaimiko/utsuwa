@@ -65,3 +65,27 @@ export function removeExtraInstance(extras: VrmExtraInstance[], id: string): Vrm
 export function isPrimaryInstance(id: string | undefined | null): boolean {
 	return !id || id === PRIMARY_INSTANCE_ID;
 }
+
+/**
+ * Mild yaw so a character at `x` looks toward the group center, not outward.
+ * Right of center (x > 0) turns left (negative Y). Softened so it is not a 90° profile.
+ */
+export function inwardFacingYaw(x: number, soften = 0.32): number {
+	if (!x) return 0;
+	return -Math.atan(x / DEFAULT_INSTANCE_SPACING) * soften;
+}
+
+/** Distance so a world-space AABB fits in both axes at the given vertical FOV. */
+export function cameraDistanceToFitBox(
+	size: { x: number; y: number },
+	fovDeg: number,
+	aspect: number,
+	zoom: number,
+	pad = 1.14
+): number {
+	const vFov = (fovDeg * Math.PI) / 180;
+	const hFov = 2 * Math.atan(Math.tan(vFov / 2) * Math.max(aspect, 0.05));
+	const distV = size.y / 2 / Math.tan(vFov / 2);
+	const distH = size.x / 2 / Math.tan(hFov / 2);
+	return (Math.max(distV, distH, 0.4) * pad) / Math.max(zoom, 0.05);
+}

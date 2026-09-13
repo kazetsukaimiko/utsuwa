@@ -67,10 +67,9 @@
 	interface Props {
 		url: string;
 		instanceId?: string;
-		position?: { x: number; y: number; z: number };
 	}
 
-	let { url, instanceId = PRIMARY_INSTANCE_ID, position }: Props = $props();
+	let { url, instanceId = PRIMARY_INSTANCE_ID }: Props = $props();
 	let vrm = $state<VRM | null>(null);
 	let group = $state<THREE.Group | null>(null);
 
@@ -150,11 +149,6 @@
 	let headTime = $state(0);
 
 	const { renderer, camera } = useThrelte();
-
-	$effect(() => {
-		if (!group || !position) return;
-		group.position.set(position.x, position.y, position.z);
-	});
 
 	// Generate thumbnail from the current 3D render
 	function generateThumbnail(modelId: string | null) {
@@ -759,15 +753,13 @@
 
 				vrm = loadedVrm;
 				group = loadedVrm.scene;
-				if (position) {
-					group.position.set(position.x, position.y, position.z);
-				}
 				const newMixer = new THREE.AnimationMixer(loadedVrm.scene);
 				mixer = newMixer;
 				if (isPrimary) {
 					vrmStore.setVrm(loadedVrm);
 					vrmStore.setLoading(false);
 				}
+				vrmStore.notifyInstanceLoaded();
 
 				// Start the looping idle animation
 				startIdleAnimation(loadedVrm, newMixer);

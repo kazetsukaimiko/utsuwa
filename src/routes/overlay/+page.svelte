@@ -181,7 +181,10 @@
 		if (!isTauri()) return;
 		let cancelled = false;
 		let stop: (() => void) | undefined;
-		startMcpBridge({ setLatestResponse: (v) => (latestResponse = v) }).then((unlisten) => {
+		startMcpBridge(
+			{ setLatestResponse: (v) => (latestResponse = v) },
+			{ spawnSessionAvatars: true }
+		).then((unlisten) => {
 			if (cancelled) unlisten();
 			else stop = unlisten;
 		});

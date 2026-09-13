@@ -19,6 +19,7 @@
 	import VrmModel from './VrmModel.svelte';
 	import OverlayRaycastHandler from '$lib/components/overlay/OverlayRaycastHandler.svelte';
 	import { vrmStore } from '$lib/stores/vrm.svelte';
+	import { cameraDistanceToFitBox, inwardFacingYaw } from '$lib/stores/vrm-instances';
 	import { displayStore } from '$lib/stores/display.svelte';
 	import { photomodeStore, type CaptureOptions } from '$lib/stores/photomode.svelte';
 	import { bucketTouchZone } from '$lib/services/photo-touch';
@@ -204,11 +205,15 @@
 			}
 		}
 
+		const onResize = () => applyCamera();
+		window.addEventListener('resize', onResize);
+
 		return () => {
 			observer.disconnect();
 			unregisterCapture();
 			canvas?.removeEventListener('pointerdown', onPointerDown);
 			canvas?.removeEventListener('pointerup', onPointerUp);
+			window.removeEventListener('resize', onResize);
 		};
 	});
 
@@ -313,6 +318,33 @@
 		cam.fov = s.fov;
 		cam.updateProjectionMatrix();
 
+		const extras = sceneInstances.filter((inst) => !inst.isPrimary && inst.url);
+		if (extras.length > 0 && modelRoot) {
+			modelRoot.updateWorldMatrix(true, true);
+			const box = new Box3().setFromObject(modelRoot);
+			if (!box.isEmpty()) {
+				const size = box.getSize(new Vector3());
+				const center = box.getCenter(new Vector3());
+				const canvas = renderer?.domElement;
+				const aspect = canvas && canvas.height > 0 ? canvas.width / canvas.height : 16 / 9;
+				const distance = cameraDistanceToFitBox(
+					{ x: size.x, y: size.y },
+					s.fov,
+					aspect,
+					s.zoom
+				);
+				const targetY = center.y + s.height;
+				cam.position.set(center.x, targetY, center.z + distance);
+				if (controls) {
+					controls.target.set(center.x, targetY, center.z);
+					controls.update();
+				} else {
+					cam.lookAt(center.x, targetY, center.z);
+				}
+				return;
+			}
+		}
+
 		const vrm = vrmStore.vrm;
 		const fit = vrm ? computeFit(vrm) : { center: 1.0, halfSpan: 0.55 };
 		const distance = fit.halfSpan / Math.tan((s.fov * Math.PI) / 360) / s.zoom;
@@ -332,6 +364,8 @@
 	// instead of snapping the camera back to the fitted position.
 	$effect(() => {
 		void vrmStore.vrm;
+		void vrmStore.instanceLoadGen;
+		void sceneInstances.length;
 		void camSettings.fov;
 		void camSettings.zoom;
 		void camSettings.height;
@@ -431,11 +465,19 @@
      intensity 1 the classic three-vrm viewers were tuned against. -->
 <T.DirectionalLight intensity={Math.PI} position={[1, 1, 1]} />
 
-<!-- VRM models, wrapped so AR placement can move/scale them without remounting -->
+<!-- VRM models, wrapped so AR placement can move/scale them without remounting.
+     Slot offset lives on a parent group so normalizeModel can keep feet on the floor. -->
 <T.Group bind:ref={modelRoot}>
 	{#each sceneInstances as inst (inst.id)}
 		{#if inst.url}
-			<VrmModel url={inst.url} instanceId={inst.id} position={inst.position} />
+			<T.Group
+				position.x={inst.position.x}
+				position.y={inst.position.y}
+				position.z={inst.position.z}
+				rotation.y={inwardFacingYaw(inst.position.x)}
+			>
+				<VrmModel url={inst.url} instanceId={inst.id} />
+			</T.Group>
 		{/if}
 	{/each}
 </T.Group>

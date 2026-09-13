@@ -6,7 +6,9 @@ import {
 	defaultPositionForSlot,
 	upsertExtraInstance,
 	removeExtraInstance,
-	isPrimaryInstance
+	isPrimaryInstance,
+	inwardFacingYaw,
+	cameraDistanceToFitBox
 } from './vrm-instances.ts';
 
 test('sceneInstances always leads with the primary avatar', () => {
@@ -68,4 +70,17 @@ test('isPrimaryInstance treats missing ids as primary', () => {
 	assert.equal(isPrimaryInstance(undefined), true);
 	assert.equal(isPrimaryInstance(PRIMARY_INSTANCE_ID), true);
 	assert.equal(isPrimaryInstance('sess-1'), false);
+});
+
+test('inwardFacingYaw turns side characters toward the center', () => {
+	assert.equal(inwardFacingYaw(0), 0);
+	assert.ok(inwardFacingYaw(1.2) < 0, 'right side turns left');
+	assert.ok(inwardFacingYaw(-1.2) > 0, 'left side turns right');
+	assert.ok(Math.abs(inwardFacingYaw(1.2)) < Math.PI / 8, 'stays a mild angle');
+});
+
+test('cameraDistanceToFitBox grows when the group is wider than tall', () => {
+	const tall = cameraDistanceToFitBox({ x: 0.5, y: 1.6 }, 35, 16 / 9, 1);
+	const wide = cameraDistanceToFitBox({ x: 4, y: 1.6 }, 35, 16 / 9, 1);
+	assert.ok(wide > tall);
 });
