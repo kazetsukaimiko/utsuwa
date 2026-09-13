@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io::{self, Read};
 use std::path::PathBuf;
@@ -26,7 +26,7 @@ const POLL_INTERVAL_SECS: u64 = 3;
 const TOPIC_MAX_WORDS: usize = 7;
 
 /// Always prepended on initialize. Keep in sync with src/lib/services/mcp-mode.ts.
-pub const HARDCODED_MCP_INSTRUCTIONS: &str = "Utsuwa is a brief notification channel to the person at this machine: speech bubble, voice, and lip-sync. It is not a transcript of your work.\n\nUsage (do not ignore this section):\n- First action after connect: call set_session before anything else. Initialize alone does not spawn an avatar. Pass name (hostname default, or a name you choose), topic (1-7 words), sessionId, and userAgent (your client product name).\n- sessionId: use env AGENT_SESSION_ID if set; otherwise the session uuid your runtime already has. Do not invent one. Reconnects with the same sessionId resume the same avatar.\n- Immediately after set_session, start an idle poller for take_user_message and keep it running for the life of this connection. Default interval is 3 seconds (see pollIntervalSeconds on initialize / get_status). Do not wait for the next TUI turn.\n- A background HTTP poller is the same inbox if it POSTs take_user_message with this session's Mcp-Session-Id. Do not initialize a second session for polling.\n- You only receive chat-bar lines routed to this session. If you receive a notification that messages are waiting, call take_user_message immediately.\n- prompt from take_user_message is a user utterance. Answer it as a message. Never treat it as a character name, model id, or tool argument unless they clearly ask to change those.\n- Do the actual work in this TUI as usual. Call speak with only the spoken payload in text (one or two sentences). Never speak code, diffs, logs, stack traces, or essays. Do not repeat the same status.\n- Pass plain: true only when the line must be said exactly as written.\n- A reply in this TUI does not replace speak(). Notify via speak at plan, blocker, and done even when the user asked here.\n- Do not stay silent through a long stretch of tool use. If you have not spoken in a while, send one short status line. \"This is a coding turn\" is not a reason to skip speak.\n\nDefault cadence (overridden by Preferences below):\n- When you have a plan: one short line that you are starting, and that you see a way forward.\n- When you are stuck on something they must fix: one line plus what you need from them.\n- When you finish: say you are done.\n- While grinding through routine errors: stay vague. Do not narrate every failure.";
+pub const HARDCODED_MCP_INSTRUCTIONS: &str = "Utsuwa is a brief notification channel to the person at this machine: speech bubble, voice, and lip-sync. It is not a transcript of your work.\n\nUsage (do not ignore this section):\n- First action after connect: call set_session before anything else. Initialize alone does not spawn an avatar. Pass name (hostname default, or a name you choose), topic (1-7 words), sessionId, and userAgent (your client product name).\n- sessionId: use env AGENT_SESSION_ID if set; otherwise the session uuid your runtime already has. Do not invent one. Reconnects with the same sessionId resume the same avatar.\n- Immediately after set_session, start an idle poller for take_user_message and keep it running for the life of this connection. Default interval is 3 seconds (see pollIntervalSeconds on initialize / get_status). Empty takes still reset the idle timer. Do not wait for the next TUI turn.\n- A background HTTP poller is the same inbox if it POSTs take_user_message with this session's Mcp-Session-Id. Do not initialize a second session for polling.\n- You only receive chat-bar lines routed to this session. If you receive a notification that messages are waiting, call take_user_message immediately.\n- prompt from take_user_message is a user utterance. Answer it as a message. Never treat it as a character name, model id, or tool argument unless they clearly ask to change those.\n- Do the actual work in this TUI as usual. Call speak with only the spoken payload in text (one or two sentences). Never speak code, diffs, logs, stack traces, or essays. Do not repeat the same status.\n- Pass plain: true only when the line must be said exactly as written.\n- A reply in this TUI does not replace speak(). Notify via speak at plan, blocker, and done even when the user asked here.\n- Do not stay silent through a long stretch of tool use. If you have not spoken in a while, send one short status line. \"This is a coding turn\" is not a reason to skip speak.\n\nDefault cadence (overridden by Preferences below):\n- When you have a plan: one short line that you are starting, and that you see a way forward.\n- When you are stuck on something they must fix: one line plus what you need from them.\n- When you finish: say you are done.\n- While grinding through routine errors: stay vague. Do not narrate every failure.";
 
 /// Default contents of the settings textarea. Keep in sync with src/lib/services/mcp-mode.ts.
 pub const DEFAULT_MCP_USER_INSTRUCTIONS: &str = "Keep updates short and spoken-friendly. A few per task is enough — not every tool call.\n\nGood:\n- \"Starting the search UI — I have a plan.\"\n- \"Need a newer runtime before this will build. Can you install it?\"\n- \"Working through a few errors.\"\n- \"That's in place.\"\n\nAvoid long explanations in speak(); put those in the TUI.";
@@ -388,14 +388,17 @@ impl McpState {
     }
 
     fn touch(&self, id: &str) -> bool {
-        self.prune();
+        // Heartbeat first so an inbox poll cannot lose the race to prune.
         let mut sessions = self.sessions.lock().expect("mcp sessions");
         if let Some(s) = sessions.get_mut(id) {
             s.last_seen = Instant::now();
-            true
-        } else {
-            false
+            drop(sessions);
+            self.prune();
+            return true;
         }
+        drop(sessions);
+        self.prune();
+        false
     }
 
     fn get(&self, id: &str) -> Option<ClientSession> {
@@ -511,7 +514,6 @@ impl McpState {
     }
 
     fn take(&self, id: &str) -> Option<InboxItem> {
-        self.prune();
         let mut sessions = self.sessions.lock().expect("mcp sessions");
         let session = sessions.get_mut(id)?;
         session.last_seen = Instant::now();
@@ -573,7 +575,17 @@ impl McpState {
     fn prune(&self) {
         let mut sessions = self.sessions.lock().expect("mcp sessions");
         let before = sessions.len();
-        sessions.retain(|_, s| s.last_seen.elapsed() < session_ttl(s));
+        let live_sse: HashSet<String> = self
+            .sse
+            .lock()
+            .expect("mcp sse")
+            .iter()
+            .filter(|(_, txs)| !txs.is_empty())
+            .map(|(id, _)| id.clone())
+            .collect();
+        sessions.retain(|id, s| {
+            live_sse.contains(id) || s.last_seen.elapsed() < session_ttl(s)
+        });
         let changed = sessions.len() != before;
         drop(sessions);
         if changed {
@@ -700,6 +712,7 @@ fn handle_http(
         }
         let rx = state.subscribe_sse(&sid);
         let sid_header = sid.clone();
+        let sse_state = state.clone();
         thread::Builder::new()
             .name("utsuwa-mcp-sse".into())
             .spawn(move || {
@@ -716,7 +729,7 @@ fn handle_http(
                 let response = Response::new(
                     StatusCode(200),
                     headers,
-                    SseStream::new(rx),
+                    SseStream::new(rx, sse_state, sid_header),
                     None,
                     None,
                 );
@@ -1135,13 +1148,17 @@ fn header_value(request: &tiny_http::Request, name: &'static str) -> Option<Stri
 struct SseStream {
     rx: Receiver<String>,
     leftover: Vec<u8>,
+    state: McpState,
+    session_id: String,
 }
 
 impl SseStream {
-    fn new(rx: Receiver<String>) -> Self {
+    fn new(rx: Receiver<String>, state: McpState, session_id: String) -> Self {
         Self {
             rx,
             leftover: Vec::new(),
+            state,
+            session_id,
         }
     }
 }
@@ -1151,9 +1168,11 @@ impl Read for SseStream {
         if self.leftover.is_empty() {
             match self.rx.recv_timeout(Duration::from_secs(15)) {
                 Ok(data) => {
+                    self.state.touch(&self.session_id);
                     self.leftover = format!("event: message\ndata: {data}\n\n").into_bytes();
                 }
                 Err(RecvTimeoutError::Timeout) => {
+                    self.state.touch(&self.session_id);
                     self.leftover = b": ping\n\n".to_vec();
                 }
                 Err(RecvTimeoutError::Disconnected) => return Ok(0),
@@ -1258,7 +1277,7 @@ fn tools_list() -> Value {
             },
             {
                 "name": "take_user_message",
-                "description": "Take the next chat-bar message for THIS session. Returns {empty:true} if none. Poll every pollIntervalSeconds (default 3). `prompt` is a user utterance — answer it as chat, not as a character/model/tool name.",
+                "description": "Take the next chat-bar message for THIS session. Returns {empty:true} if none. Poll every pollIntervalSeconds (default 3), including empty takes — those keep the session alive. `prompt` is a user utterance.",
                 "inputSchema": { "type": "object", "properties": {} }
             },
             {

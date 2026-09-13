@@ -12,7 +12,7 @@ export const HARDCODED_MCP_INSTRUCTIONS = `Utsuwa is a brief notification channe
 Usage (do not ignore this section):
 - First action after connect: call set_session before anything else. Initialize alone does not spawn an avatar. Pass name (hostname default, or a name you choose), topic (1-7 words), sessionId, and userAgent (your client product name).
 - sessionId: use env AGENT_SESSION_ID if set; otherwise the session uuid your runtime already has. Do not invent one. Reconnects with the same sessionId resume the same avatar.
-- Immediately after set_session, start an idle poller for take_user_message and keep it running for the life of this connection. Default interval is 3 seconds (see pollIntervalSeconds on initialize / get_status). Do not wait for the next TUI turn.
+- Immediately after set_session, start an idle poller for take_user_message and keep it running for the life of this connection. Default interval is 3 seconds (see pollIntervalSeconds on initialize / get_status). Empty takes still reset the idle timer. Do not wait for the next TUI turn.
 - A background HTTP poller is the same inbox if it POSTs take_user_message with this session's Mcp-Session-Id. Do not initialize a second session for polling.
 - You only receive chat-bar lines routed to this session. If you receive a notification that messages are waiting, call take_user_message immediately.
 - prompt from take_user_message is a user utterance. Answer it as a message. Never treat it as a character name, model id, or tool argument unless they clearly ask to change those.
