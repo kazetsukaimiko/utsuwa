@@ -2,6 +2,7 @@ export const MCP_TOOLS = [
 	'speak',
 	'stop_speech',
 	'get_status',
+	'debug_state',
 	'set_session',
 	'set_character',
 	'set_voice',

@@ -549,6 +549,27 @@ impl McpState {
         json!(list)
     }
 
+    fn list_debug(&self) -> Value {
+        let sessions = self.sessions.lock().expect("mcp sessions");
+        let list: Vec<Value> = sessions
+            .values()
+            .map(|s| {
+                json!({
+                    "id": s.id,
+                    "name": s.name,
+                    "topic": s.topic,
+                    "claimed": s.claimed,
+                    "resumeId": s.resume_id,
+                    "userAgent": s.user_agent,
+                    "modelId": s.model_id,
+                    "pending": s.inbox.len(),
+                    "idleSecs": s.last_seen.elapsed().as_secs()
+                })
+            })
+            .collect();
+        json!(list)
+    }
+
     fn prune(&self) {
         let mut sessions = self.sessions.lock().expect("mcp sessions");
         let before = sessions.len();
@@ -967,7 +988,7 @@ fn call_webview(
     match rx.recv_timeout(JS_TIMEOUT) {
         Ok(reply) => {
             let mut payload = reply.payload;
-            if name == "get_status" {
+            if name == "get_status" || name == "debug_state" {
                 if let Some(obj) = payload.as_object_mut() {
                     if let Some(s) = session {
                         obj.insert(
@@ -982,8 +1003,25 @@ fn call_webview(
                     }
                     obj.insert("sessions".into(), state.list_public());
                     obj.insert("hostName".into(), json!(default_host_name()));
-                    obj.insert("instructions".into(), json!(state.instructions_text()));
                     obj.insert("pollIntervalSeconds".into(), json!(POLL_INTERVAL_SECS));
+                    if name == "get_status" {
+                        obj.insert("instructions".into(), json!(state.instructions_text()));
+                    }
+                    if name == "debug_state" {
+                        let overlay_visible = app
+                            .get_webview_window("overlay")
+                            .and_then(|w| w.is_visible().ok())
+                            .unwrap_or(false);
+                        obj.insert(
+                            "server".into(),
+                            json!({
+                                "targetWindow": target,
+                                "overlayVisible": overlay_visible,
+                                "allSessions": state.list_debug(),
+                                "claimedSessions": state.list_public()
+                            }),
+                        );
+                    }
                 }
             }
             jsonrpc_result(id, wrap_tool_result(payload, !reply.ok))
@@ -1267,6 +1305,11 @@ fn tools_list() -> Value {
                 "name": "get_status",
                 "description": "Ready flag, TTS, this session (you), and all connected sessions.",
                 "inputSchema": { "type": "object", "properties": {} }
+            },
+            {
+                "name": "debug_state",
+                "description": "Temporary dump of MCP + scene state (window, sessions, VRM instances). For debugging; safe to remove later.",
+                "inputSchema": { "type": "object", "properties": {} }
             }
         ]
     })
@@ -1279,8 +1322,8 @@ fn parse_tool_call(params: Option<&Value>) -> Result<(String, Value), String> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| "missing tool name".to_string())?;
     match name {
-        "speak" | "stop_speech" | "get_status" | "set_session" | "set_character" | "set_voice"
-        | "take_user_message" => {
+        "speak" | "stop_speech" | "get_status" | "debug_state" | "set_session" | "set_character"
+        | "set_voice" | "take_user_message" => {
             Ok((name.to_string(), params.get("arguments").cloned().unwrap_or_else(|| json!({}))))
         }
         other => Err(format!("unknown tool: {other}")),
@@ -1397,6 +1440,7 @@ mod tests {
                 assert!(names.contains(&"set_voice"));
                 assert!(names.contains(&"take_user_message"));
                 assert!(names.contains(&"speak"));
+                assert!(names.contains(&"debug_state"));
             }
             _ => panic!("expected respond"),
         }

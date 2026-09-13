@@ -69,6 +69,11 @@ test('plainFromArgs is true only for boolean true', () => {
 	assert.equal(plainFromArgs({}), false);
 });
 
+test('parseMcpCommand accepts debug_state', () => {
+	const parsed = parseMcpCommand({ id: 'mcp-dbg', tool: 'debug_state', arguments: {} });
+	assert.ok(!('error' in parsed));
+});
+
 test('parseMcpCommand accepts set_character', () => {
 	const parsed = parseMcpCommand({
 		id: 'mcp-3',

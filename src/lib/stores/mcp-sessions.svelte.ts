@@ -163,6 +163,9 @@ function createMcpSessionsStore() {
 		get waiting() {
 			return pendingWait !== null;
 		},
+		get spawnAvatars() {
+			return spawnAvatars;
+		},
 		select,
 		beginWait,
 		completeWait,

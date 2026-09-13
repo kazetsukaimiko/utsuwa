@@ -7,7 +7,7 @@ import { modulesStore } from '$lib/stores/modules.svelte';
 import { mcpSessionsStore } from '$lib/stores/mcp-sessions.svelte';
 import { canSpeak } from '$lib/stores/tts-store-logic';
 import { getCurrentTtsOptions, isSpeechEnabled } from '$lib/services/tts/session-options';
-import { resolveMcpUserInstructions } from './mcp-mode';
+import { isMcpProvider, resolveMcpUserInstructions } from './mcp-mode';
 import {
 	parseMcpCommand,
 	speakTextFromArgs,
@@ -29,6 +29,8 @@ export function executeMcpCommand(cmd: McpCommand, hooks: McpHooks): McpReply {
 	switch (cmd.tool) {
 		case 'get_status':
 			return statusReply();
+		case 'debug_state':
+			return debugState(cmd);
 		case 'stop_speech':
 			ttsStore.stop();
 			vrmStore.stopTalking();
@@ -87,6 +89,34 @@ function speak(cmd: McpCommand, hooks: McpHooks): McpReply {
 	vrmStore.startTalking(spoken, speaker);
 	void ttsStore.speak(spoken, options);
 	return { ok: true, payload: { queued: true, spoken: true, provider: options.provider } };
+}
+
+function debugState(cmd: McpCommand): McpReply {
+	const consciousness = modulesStore.getModuleSettings('consciousness');
+	const provider = (consciousness.activeProvider as string) || '';
+	return {
+		ok: true,
+		payload: {
+			temporary: true,
+			window: cmd.target ?? 'unknown',
+			provider,
+			mcpMode: isMcpProvider(provider),
+			sessions: mcpSessionsStore.sessions,
+			selectedId: mcpSessionsStore.selectedId,
+			spawnAvatars: mcpSessionsStore.spawnAvatars,
+			instances: vrmStore.instances.map((inst) => ({
+				id: inst.id,
+				modelId: inst.modelId,
+				hasUrl: Boolean(inst.url),
+				isPrimary: inst.isPrimary,
+				position: inst.position
+			})),
+			primaryVrmLoaded: Boolean(vrmStore.vrm),
+			modelUrl: vrmStore.modelUrl,
+			talkingInstanceId: vrmStore.talkingInstanceId,
+			chatLoading: chatStore.isLoading
+		}
+	};
 }
 
 function statusReply(): McpReply {
