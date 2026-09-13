@@ -93,7 +93,7 @@
 
 			{#if provider?.id === 'mcp'}
 				<p class="provider-note">
-					MCP Mode routes the chat bar to a connected desktop MCP client (Grok Build, etc.). Pick
+					MCP Mode routes the chat bar to a connected desktop MCP client. Pick
 					the session in the chat bar. The character does not call an LLM of her own.
 				</p>
 			{:else}

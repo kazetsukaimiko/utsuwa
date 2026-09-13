@@ -59,13 +59,13 @@ The dev command launches both a development server and the desktop window. The b
 
 ## Remote control (MCP)
 
-The desktop app hosts a [Model Context Protocol](https://modelcontextprotocol.io) server on loopback so another local agent (for example [Grok Build](https://docs.x.ai)) can make the companion speak without going through her chat LLM.
+The desktop app hosts a [Model Context Protocol](https://modelcontextprotocol.io) server on loopback so another local agent can make the companion speak without going through her chat LLM.
 
 - **URL:** `http://127.0.0.1:8787/mcp`
 - **Bind:** `127.0.0.1` only. Override with `UTSUWA_MCP_BIND` (for example `127.0.0.1:9876`).
 - **Name:** each connecting client is a session. The display name defaults to this machine (`shizuku.local` → **Shizuku**). Override with `UTSUWA_MCP_NAME` or the `X-Utsuwa-Name` header.
-- **Topic:** a 1–7 word description of what that terminal is working on. Call `set_session` with it so two Grok sessions on the same computer can be told apart.
-- **Tools:** `set_session`, `set_character`, `set_voice`, `take_user_message`, `speak` (payload only; optional `language`, optional `plain`), `stop_speech`, `get_status`. Each session can pick a gallery VRM and a TTS voice. Pass `resumeId` (`GROK_SESSION_ID`) on `set_session` so reconnects restore the same avatar. Unclaimed initialize-only sessions go dark after 90s; claimed sessions after 10 minutes. Appearance is stored in `~/.config/utsuwa/mcp-server/sessions/`.
+- **Topic:** a 1–7 word description of what that terminal is working on. Call `set_session` with it so two agent sessions on the same computer can be told apart.
+- **Tools:** `set_session`, `set_character`, `set_voice`, `take_user_message`, `speak` (payload only; optional `language`, optional `plain`), `stop_speech`, `get_status`. Call `set_session` immediately after connect — that is what makes an avatar appear. Pass `sessionId` (`AGENT_SESSION_ID`) so reconnects restore the same avatar. Unclaimed initialize-only sessions go dark after 90s; claimed sessions after 10 minutes. Appearance is stored in `~/.config/utsuwa/mcp-server/sessions/`.
 - **Instructions:** on connect, clients always get hardcoded usage rules (poll `take_user_message`, payload-only `speak`, no dumps). A separate **Preferences** box under **Settings > Chat (LLM) > MCP notifications** overlays tone and frequency.
 - The app must be open. If the overlay is visible, speech plays there; otherwise it plays in the main window.
 
@@ -77,15 +77,7 @@ When the client answers, call `speak` with **only the spoken payload** in `text`
 
 Several clients can stay connected. Idle sessions drop after 10 minutes.
 
-Grok Build (`~/.grok/config.toml`):
-
-```
-[mcp_servers.utsuwa]
-url = "http://127.0.0.1:8787/mcp"
-enabled = true
-```
-
-Then `/mcps` → refresh, or restart Grok. Anyone on this machine can drive the avatar while the app is running; do not expose the port beyond loopback. Topic is per terminal — set it with `set_session`, not a shared header.
+Point your MCP client at `http://127.0.0.1:8787/mcp`. Anyone on this machine can drive the avatar while the app is running; do not expose the port beyond loopback. Topic is per terminal — set it with `set_session`, not a shared header.
 
 ## Updating
 

@@ -115,7 +115,7 @@ export const LLM_PROVIDERS: ProviderMetadata[] = [
 	{
 		id: 'mcp',
 		name: 'MCP Mode',
-		description: 'Route the chat bar to a connected MCP client (Grok Build, etc.)',
+		description: 'Route the chat bar to a connected MCP client',
 		category: 'llm',
 		icon: '🔗',
 		requiresApiKey: false,

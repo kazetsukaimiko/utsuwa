@@ -1,7 +1,7 @@
 //! Loopback MCP (Model Context Protocol) server.
 //!
 //! Desktop-only: binds `127.0.0.1` and speaks Streamable HTTP JSON-RPC so MCP
-//! clients (Grok Build sessions, etc.) can puppet the running app. Each client
+//! clients (local coding agents, etc.) can puppet the running app. Each client
 //! is a named session (machine name + short topic) with its own inbox.
 
 use serde::{Deserialize, Serialize};
@@ -24,7 +24,7 @@ const PRUNE_INTERVAL: Duration = Duration::from_secs(15);
 const TOPIC_MAX_WORDS: usize = 7;
 
 /// Always prepended on initialize. Keep in sync with src/lib/services/mcp-mode.ts.
-pub const HARDCODED_MCP_INSTRUCTIONS: &str = "Utsuwa is a brief notification channel to the person at this machine: speech bubble, voice, and lip-sync. It is not a transcript of your work.\n\nUsage (do not ignore this section):\n- Do the actual work in this session as usual, whether the user spoke in this TUI or sent a line through Utsuwa's chat bar.\n- Chat-bar lines arrive via take_user_message as prompt. That is a real user message; answer it.\n- You only receive what they routed to this session. Call set_session with a 1-7 word topic for this terminal. Also pass resumeId from env GROK_SESSION_ID (your Grok Build session id) so reconnects resume this avatar instead of spawning another.\n- Poll take_user_message regularly, including while idle between TUI turns. If you stop polling, their chat-bar lines sit unseen.\n- Call speak with only the spoken payload in text (one or two sentences). Never speak code, diffs, logs, stack traces, or essays. Do not repeat the same status.\n- Pass plain: true only when the line must be said exactly as written.\n- A reply in this TUI does not replace speak(). Notify via speak at plan, blocker, and done even when the user asked here.\n- Do not stay silent through a long stretch of tool use. If you have not spoken in a while, send one short status line. \"This is a coding turn\" is not a reason to skip speak.\n\nDefault cadence (overridden by Preferences below):\n- When you have a plan: one short line that you are starting, and that you see a way forward.\n- When you are stuck on something they must fix: one line plus what you need from them.\n- When you finish: say you are done.\n- While grinding through routine errors: stay vague. Do not narrate every failure.";
+pub const HARDCODED_MCP_INSTRUCTIONS: &str = "Utsuwa is a brief notification channel to the person at this machine: speech bubble, voice, and lip-sync. It is not a transcript of your work.\n\nUsage (do not ignore this section):\n- Do the actual work in this session as usual, whether the user spoke in this TUI or sent a line through Utsuwa's chat bar.\n- Chat-bar lines arrive via take_user_message as prompt. That is a real user message; answer it.\n- You only receive what they routed to this session. Immediately after connect, call set_session — that is what makes your avatar appear; initialize alone does not. Pass name (hostname default), topic (1-7 words), sessionId (env AGENT_SESSION_ID), and userAgent (your client product name). Reconnects with the same sessionId resume the same avatar.\n- Poll take_user_message regularly, including while idle between TUI turns. If you stop polling, their chat-bar lines sit unseen.\n- Call speak with only the spoken payload in text (one or two sentences). Never speak code, diffs, logs, stack traces, or essays. Do not repeat the same status.\n- Pass plain: true only when the line must be said exactly as written.\n- A reply in this TUI does not replace speak(). Notify via speak at plan, blocker, and done even when the user asked here.\n- Do not stay silent through a long stretch of tool use. If you have not spoken in a while, send one short status line. \"This is a coding turn\" is not a reason to skip speak.\n\nDefault cadence (overridden by Preferences below):\n- When you have a plan: one short line that you are starting, and that you see a way forward.\n- When you are stuck on something they must fix: one line plus what you need from them.\n- When you finish: say you are done.\n- While grinding through routine errors: stay vague. Do not narrate every failure.";
 
 /// Default contents of the settings textarea. Keep in sync with src/lib/services/mcp-mode.ts.
 pub const DEFAULT_MCP_USER_INSTRUCTIONS: &str = "Keep updates short and spoken-friendly. A few per task is enough — not every tool call.\n\nGood:\n- \"Starting the search UI — I have a plan.\"\n- \"Need a newer runtime before this will build. Can you install it?\"\n- \"Working through a few errors.\"\n- \"That's in place.\"\n\nAvoid long explanations in speak(); put those in the TUI.";
@@ -64,6 +64,8 @@ struct StoredSession {
     model_id: String,
     #[serde(default)]
     voice_id: String,
+    #[serde(default)]
+    user_agent: String,
 }
 
 fn sessions_dir() -> PathBuf {
@@ -90,7 +92,7 @@ fn sanitize_resume_id(raw: &str) -> Option<String> {
 
 fn resume_id_from_value(v: Option<&Value>) -> Option<String> {
     let v = v?;
-    for key in ["resumeId", "grokSessionId"] {
+    for key in ["resumeId", "agentSessionId", "sessionId"] {
         if let Some(s) = v.get(key).and_then(|x| x.as_str()) {
             if let Some(id) = sanitize_resume_id(s) {
                 return Some(id);
@@ -101,11 +103,39 @@ fn resume_id_from_value(v: Option<&Value>) -> Option<String> {
 }
 
 fn session_ttl(session: &ClientSession) -> Duration {
-    if session.resume_id.is_empty() && session.topic.is_empty() {
-        UNCLAIMED_TTL
-    } else {
+    if session.claimed {
         SESSION_TTL
+    } else {
+        UNCLAIMED_TTL
     }
+}
+
+fn pretty_user_agent(raw: &str) -> String {
+    let lower = raw.trim().to_ascii_lowercase();
+    if lower.is_empty() {
+        return "MCP client".into();
+    }
+    if lower.contains("grok") {
+        return "Grok Build".into();
+    }
+    if lower.contains("cursor") {
+        return "Cursor".into();
+    }
+    if lower.contains("claude") {
+        return "Claude Code".into();
+    }
+    if lower.contains("hermes") {
+        return "Hermes".into();
+    }
+    raw.trim().to_string()
+}
+
+fn client_info_user_agent(params: Option<&Value>) -> Option<String> {
+    params
+        .and_then(|p| p.get("clientInfo"))
+        .and_then(|c| c.get("name"))
+        .and_then(|n| n.as_str())
+        .map(pretty_user_agent)
 }
 
 fn load_stored(resume_id: &str) -> Option<StoredSession> {
@@ -128,6 +158,7 @@ fn save_stored(session: &ClientSession) {
         topic: session.topic.clone(),
         model_id: session.model_id.clone(),
         voice_id: session.voice_id.clone(),
+        user_agent: session.user_agent.clone(),
     };
     if let Ok(body) = serde_json::to_string_pretty(&stored) {
         let path = dir.join(format!("{}.json", session.resume_id));
@@ -151,6 +182,8 @@ struct ClientSession {
     model_id: String,
     voice_id: String,
     resume_id: String,
+    user_agent: String,
+    claimed: bool,
     last_seen: Instant,
     inbox: VecDeque<InboxItem>,
 }
@@ -215,7 +248,13 @@ impl McpState {
         }
     }
 
-    fn claim_session(&self, name: String, topic: String, resume_id: Option<String>) -> ClientSession {
+    fn claim_session(
+        &self,
+        name: String,
+        topic: String,
+        resume_id: Option<String>,
+        user_agent: String,
+    ) -> ClientSession {
         if let Some(rid) = resume_id.as_ref() {
             if let Some(existing) = self.get_by_resume(rid) {
                 self.touch(&existing.id);
@@ -239,6 +278,12 @@ impl McpState {
                 model_id: stored.as_ref().map(|s| s.model_id.clone()).unwrap_or_default(),
                 voice_id: stored.as_ref().map(|s| s.voice_id.clone()).unwrap_or_default(),
                 resume_id: rid.clone(),
+                user_agent: stored
+                    .as_ref()
+                    .map(|s| s.user_agent.clone())
+                    .filter(|a| !a.is_empty())
+                    .unwrap_or(user_agent),
+                claimed: true,
                 last_seen: Instant::now(),
                 inbox: VecDeque::new(),
             };
@@ -258,6 +303,8 @@ impl McpState {
             model_id: String::new(),
             voice_id: String::new(),
             resume_id: String::new(),
+            user_agent,
+            claimed: false,
             last_seen: Instant::now(),
             inbox: VecDeque::new(),
         };
@@ -297,12 +344,14 @@ impl McpState {
                         topic: old.topic,
                         model_id: old.model_id,
                         voice_id: old.voice_id,
+                        user_agent: old.user_agent,
                     });
                 }
             }
         }
         let session = sessions.get_mut(session_id)?;
         session.resume_id = resume_id;
+        session.claimed = true;
         if let Some(prev) = stolen {
             if session.topic.is_empty() && !prev.topic.is_empty() {
                 session.topic = prev.topic;
@@ -315,6 +364,9 @@ impl McpState {
             }
             if session.name == default_host_name() && !prev.name.is_empty() {
                 session.name = prev.name;
+            }
+            if session.user_agent.is_empty() && !prev.user_agent.is_empty() {
+                session.user_agent = prev.user_agent;
             }
         }
         session.last_seen = Instant::now();
@@ -346,10 +398,17 @@ impl McpState {
         self.sessions.lock().expect("mcp sessions").get(id).cloned()
     }
 
-    fn set_identity(&self, id: &str, name: Option<String>, topic: Option<String>) -> Option<ClientSession> {
+    fn set_identity(
+        &self,
+        id: &str,
+        name: Option<String>,
+        topic: Option<String>,
+        user_agent: Option<String>,
+    ) -> Option<ClientSession> {
         self.prune();
         let mut sessions = self.sessions.lock().expect("mcp sessions");
         let session = sessions.get_mut(id)?;
+        session.claimed = true;
         if let Some(n) = name {
             let n = n.trim();
             if !n.is_empty() {
@@ -358,6 +417,12 @@ impl McpState {
         }
         if let Some(t) = topic {
             session.topic = clamp_topic(&t);
+        }
+        if let Some(ua) = user_agent {
+            let ua = pretty_user_agent(&ua);
+            if ua != "MCP client" {
+                session.user_agent = ua;
+            }
         }
         session.last_seen = Instant::now();
         let clone = session.clone();
@@ -429,6 +494,7 @@ impl McpState {
         let sessions = self.sessions.lock().expect("mcp sessions");
         let list: Vec<Value> = sessions
             .values()
+            .filter(|s| s.claimed)
             .map(|s| {
                 json!({
                     "id": s.id,
@@ -437,6 +503,7 @@ impl McpState {
                     "modelId": s.model_id,
                     "voiceId": s.voice_id,
                     "resumeId": s.resume_id,
+                    "userAgent": s.user_agent,
                     "pending": s.inbox.len()
                 })
             })
@@ -625,7 +692,11 @@ fn handle_http(
             .unwrap_or_else(default_host_name);
         let topic = header_topic.unwrap_or_default();
         let resume = header_resume.or_else(|| resume_id_from_value(params));
-        let session = state.claim_session(name, topic, resume);
+        let user_agent = header_value(&request, "X-Utsuwa-User-Agent")
+            .map(|s| pretty_user_agent(&s))
+            .or_else(|| client_info_user_agent(params))
+            .unwrap_or_else(|| "MCP client".into());
+        let session = state.claim_session(name, topic, resume, user_agent);
         eprintln!(
             "[utsuwa-mcp] session {} name={} topic={:?}",
             session.id, session.name, session.topic
@@ -697,7 +768,11 @@ fn handle_set_session(state: &McpState, session_id: &str, id: Value, arguments: 
             return jsonrpc_error(id, -32000, "session gone".into());
         }
     }
-    match state.set_identity(session_id, name, topic) {
+    let user_agent = arguments
+        .get("userAgent")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    match state.set_identity(session_id, name, topic, user_agent) {
         Some(session) => jsonrpc_result(
             id,
             wrap_tool_result(
@@ -705,7 +780,9 @@ fn handle_set_session(state: &McpState, session_id: &str, id: Value, arguments: 
                     "id": session.id,
                     "name": session.name,
                     "topic": session.topic,
-                    "resumeId": session.resume_id
+                    "sessionId": session.resume_id,
+                    "resumeId": session.resume_id,
+                    "userAgent": session.user_agent
                 }),
                 false,
             ),
@@ -1024,14 +1101,17 @@ fn tools_list() -> Value {
         "tools": [
             {
                 "name": "set_session",
-                "description": "Set this session's display name (machine, e.g. Shizuku) and a 1-7 word topic describing what you are working on. Topic is required to tell terminals on the same machine apart.",
+                "description": "Call immediately after connect. This is what makes your avatar appear. Pass name (defaults to hostname), topic (1-7 words), sessionId (env AGENT_SESSION_ID), and userAgent (your client product name).",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "name": { "type": "string", "description": "Machine display name. Defaults to the hostname (shizuku.local → Shizuku)." },
-                        "topic": { "type": "string", "description": "1-7 words, e.g. 'utsuwa MCP chat'." },
-                        "resumeId": { "type": "string", "description": "Grok Build session id (env GROK_SESSION_ID). Reconnects with the same id resume this avatar." }
-                    }
+                        "name": { "type": "string", "description": "Display name. Defaults to the hostname (shizuku.local → Shizuku)." },
+                        "topic": { "type": "string", "description": "1-7 words describing this terminal's work." },
+                        "sessionId": { "type": "string", "description": "This agent's session id (env AGENT_SESSION_ID). Reconnects resume the same avatar." },
+                        "resumeId": { "type": "string", "description": "Alias of sessionId." },
+                        "agentSessionId": { "type": "string", "description": "Alias of sessionId." },
+                        "userAgent": { "type": "string", "description": "Client product name, e.g. Cursor, Claude Code, Hermes, Grok Build." }
+                    },
                 }
             },
             {
@@ -1120,7 +1200,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sanitize_resume_id_accepts_grok_ids() {
+    fn sanitize_resume_id_accepts_agent_ids() {
         assert_eq!(
             sanitize_resume_id("01a0979b-f70d-7d80-9fa1-3dadf1b25338").as_deref(),
             Some("01a0979b-f70d-7d80-9fa1-3dadf1b25338")
@@ -1138,12 +1218,15 @@ mod tests {
             model_id: String::new(),
             voice_id: String::new(),
             resume_id: "01a0979b-f70d-7d80-9fa1-3dadf1b25338".into(),
+            user_agent: "Grok Build".into(),
+            claimed: true,
             last_seen: Instant::now(),
             inbox: VecDeque::new(),
         };
         let unclaimed = ClientSession {
             resume_id: String::new(),
             topic: String::new(),
+            claimed: false,
             ..claimed.clone()
         };
         assert_eq!(session_ttl(&claimed), SESSION_TTL);
@@ -1181,7 +1264,8 @@ mod tests {
                 assert!(instructions.contains("notification channel"));
                 assert!(instructions.contains("Poll take_user_message"));
                 assert!(instructions.contains("does not replace speak"));
-                assert!(instructions.contains("GROK_SESSION_ID"));
+                assert!(instructions.contains("AGENT_SESSION_ID"));
+                assert!(instructions.contains("initialize alone does not"));
                 assert!(instructions.contains("Preferences (from the user at this machine)"));
                 assert!(!instructions.contains("Building the session picker"));
                 assert!(!instructions.contains("Java is too old"));

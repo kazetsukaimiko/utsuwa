@@ -58,7 +58,9 @@ test('applySpeakTemplate fills name topic and message', () => {
 test('hardcoded MCP instructions cover polling and dumps, not user examples', () => {
 	assert.match(HARDCODED_MCP_INSTRUCTIONS, /notification channel/);
 	assert.match(HARDCODED_MCP_INSTRUCTIONS, /Poll take_user_message/);
-	assert.match(HARDCODED_MCP_INSTRUCTIONS, /GROK_SESSION_ID/);
+	assert.match(HARDCODED_MCP_INSTRUCTIONS, /AGENT_SESSION_ID/);
+	assert.match(HARDCODED_MCP_INSTRUCTIONS, /initialize alone does not/);
+	assert.match(HARDCODED_MCP_INSTRUCTIONS, /userAgent/);
 	assert.match(HARDCODED_MCP_INSTRUCTIONS, /Never speak code/);
 	assert.match(HARDCODED_MCP_INSTRUCTIONS, /does not replace speak/);
 	assert.match(HARDCODED_MCP_INSTRUCTIONS, /coding turn/);
