@@ -8,8 +8,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
+use std::io::{self, Read};
 use std::path::PathBuf;
-use std::sync::mpsc::{self, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -24,7 +25,7 @@ const PRUNE_INTERVAL: Duration = Duration::from_secs(15);
 const TOPIC_MAX_WORDS: usize = 7;
 
 /// Always prepended on initialize. Keep in sync with src/lib/services/mcp-mode.ts.
-pub const HARDCODED_MCP_INSTRUCTIONS: &str = "Utsuwa is a brief notification channel to the person at this machine: speech bubble, voice, and lip-sync. It is not a transcript of your work.\n\nUsage (do not ignore this section):\n- First action after connect: call set_session before anything else. Initialize alone does not spawn an avatar. Pass name (hostname default, or a name you choose), topic (1-7 words), sessionId, and userAgent (your client product name).\n- sessionId: use env AGENT_SESSION_ID if set; otherwise the session uuid your runtime already has. Do not invent one. Reconnects with the same sessionId resume the same avatar.\n- You only receive chat-bar lines routed to this session. Call take_user_message at the start of every turn and keep polling while idle. If you stop, lines sit unseen.\n- prompt from take_user_message is a user utterance. Answer it as a message. Never treat it as a character name, model id, or tool argument unless they clearly ask to change those.\n- Do the actual work in this TUI as usual. Call speak with only the spoken payload in text (one or two sentences). Never speak code, diffs, logs, stack traces, or essays. Do not repeat the same status.\n- Pass plain: true only when the line must be said exactly as written.\n- A reply in this TUI does not replace speak(). Notify via speak at plan, blocker, and done even when the user asked here.\n- Do not stay silent through a long stretch of tool use. If you have not spoken in a while, send one short status line. \"This is a coding turn\" is not a reason to skip speak.\n\nDefault cadence (overridden by Preferences below):\n- When you have a plan: one short line that you are starting, and that you see a way forward.\n- When you are stuck on something they must fix: one line plus what you need from them.\n- When you finish: say you are done.\n- While grinding through routine errors: stay vague. Do not narrate every failure.";
+pub const HARDCODED_MCP_INSTRUCTIONS: &str = "Utsuwa is a brief notification channel to the person at this machine: speech bubble, voice, and lip-sync. It is not a transcript of your work.\n\nUsage (do not ignore this section):\n- First action after connect: call set_session before anything else. Initialize alone does not spawn an avatar. Pass name (hostname default, or a name you choose), topic (1-7 words), sessionId, and userAgent (your client product name).\n- sessionId: use env AGENT_SESSION_ID if set; otherwise the session uuid your runtime already has. Do not invent one. Reconnects with the same sessionId resume the same avatar.\n- You only receive chat-bar lines routed to this session. Call take_user_message at the start of every turn and keep polling while idle. If you stop, lines sit unseen. If you receive a notification that messages are waiting, call take_user_message immediately.\n- prompt from take_user_message is a user utterance. Answer it as a message. Never treat it as a character name, model id, or tool argument unless they clearly ask to change those.\n- Do the actual work in this TUI as usual. Call speak with only the spoken payload in text (one or two sentences). Never speak code, diffs, logs, stack traces, or essays. Do not repeat the same status.\n- Pass plain: true only when the line must be said exactly as written.\n- A reply in this TUI does not replace speak(). Notify via speak at plan, blocker, and done even when the user asked here.\n- Do not stay silent through a long stretch of tool use. If you have not spoken in a while, send one short status line. \"This is a coding turn\" is not a reason to skip speak.\n\nDefault cadence (overridden by Preferences below):\n- When you have a plan: one short line that you are starting, and that you see a way forward.\n- When you are stuck on something they must fix: one line plus what you need from them.\n- When you finish: say you are done.\n- While grinding through routine errors: stay vague. Do not narrate every failure.";
 
 /// Default contents of the settings textarea. Keep in sync with src/lib/services/mcp-mode.ts.
 pub const DEFAULT_MCP_USER_INSTRUCTIONS: &str = "Keep updates short and spoken-friendly. A few per task is enough — not every tool call.\n\nGood:\n- \"Starting the search UI — I have a plan.\"\n- \"Need a newer runtime before this will build. Can you install it?\"\n- \"Working through a few errors.\"\n- \"That's in place.\"\n\nAvoid long explanations in speak(); put those in the TUI.";
@@ -172,6 +173,7 @@ pub struct McpState {
     sessions: Arc<Mutex<HashMap<String, ClientSession>>>,
     app: Arc<Mutex<Option<AppHandle>>>,
     instructions: Arc<Mutex<String>>,
+    sse: Arc<Mutex<HashMap<String, Vec<Sender<String>>>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -220,6 +222,7 @@ impl McpState {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             app: Arc::new(Mutex::new(None)),
             instructions: Arc::new(Mutex::new(DEFAULT_MCP_USER_INSTRUCTIONS.to_string())),
+            sse: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -379,6 +382,7 @@ impl McpState {
 
     fn drop_session(&self, id: &str) {
         self.sessions.lock().expect("mcp sessions").remove(id);
+        self.sse.lock().expect("mcp sse").remove(id);
         self.emit_sessions();
     }
 
@@ -467,9 +471,42 @@ impl McpState {
         };
         session.inbox.push_back(item.clone());
         session.last_seen = Instant::now();
+        let pending = session.inbox.len();
         drop(sessions);
         self.emit_sessions();
+        self.notify_inbox(&id, pending);
         Ok(item)
+    }
+
+    fn subscribe_sse(&self, session_id: &str) -> Receiver<String> {
+        let (tx, rx) = mpsc::channel();
+        self.sse
+            .lock()
+            .expect("mcp sse")
+            .entry(session_id.to_string())
+            .or_default()
+            .push(tx);
+        rx
+    }
+
+    fn notify_inbox(&self, session_id: &str, pending: usize) {
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/message",
+            "params": {
+                "level": "info",
+                "logger": "utsuwa",
+                "data": format!("{pending} message(s) waiting. Call take_user_message.")
+            }
+        });
+        let line = payload.to_string();
+        let mut sinks = self.sse.lock().expect("mcp sse");
+        if let Some(list) = sinks.get_mut(session_id) {
+            list.retain(|tx| tx.send(line.clone()).is_ok());
+            if list.is_empty() {
+                sinks.remove(session_id);
+            }
+        }
     }
 
     fn take(&self, id: &str) -> Option<InboxItem> {
@@ -629,11 +666,39 @@ fn handle_http(
     }
 
     if method == Method::Get && path == "/mcp" {
-        let mut response = text_response(StatusCode(405), "method not allowed");
-        if let Ok(h) = Header::from_bytes(b"Allow", b"POST") {
-            response.add_header(h);
+        let sid = header_value(&request, "Mcp-Session-Id");
+        let Some(sid) = sid else {
+            request.respond(text_response(StatusCode(400), "missing Mcp-Session-Id"))?;
+            return Ok(());
+        };
+        if state.get(&sid).is_none() {
+            request.respond(text_response(StatusCode(404), "unknown session"))?;
+            return Ok(());
         }
-        request.respond(response)?;
+        let rx = state.subscribe_sse(&sid);
+        let sid_header = sid.clone();
+        thread::Builder::new()
+            .name("utsuwa-mcp-sse".into())
+            .spawn(move || {
+                let mut headers = Vec::new();
+                if let Ok(h) = Header::from_bytes(b"Content-Type", b"text/event-stream") {
+                    headers.push(h);
+                }
+                if let Ok(h) = Header::from_bytes(b"Cache-Control", b"no-cache") {
+                    headers.push(h);
+                }
+                if let Ok(h) = Header::from_bytes(b"Mcp-Session-Id", sid_header.as_bytes()) {
+                    headers.push(h);
+                }
+                let response = Response::new(
+                    StatusCode(200),
+                    headers,
+                    SseStream::new(rx),
+                    None,
+                    None,
+                );
+                let _ = request.respond(response);
+            })?;
         return Ok(());
     }
 
@@ -1023,6 +1088,40 @@ fn header_value(request: &tiny_http::Request, name: &'static str) -> Option<Stri
         .iter()
         .find(|h| h.field.equiv(name))
         .map(|h| h.value.as_str().to_string())
+}
+
+struct SseStream {
+    rx: Receiver<String>,
+    leftover: Vec<u8>,
+}
+
+impl SseStream {
+    fn new(rx: Receiver<String>) -> Self {
+        Self {
+            rx,
+            leftover: Vec::new(),
+        }
+    }
+}
+
+impl Read for SseStream {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.leftover.is_empty() {
+            match self.rx.recv_timeout(Duration::from_secs(15)) {
+                Ok(data) => {
+                    self.leftover = format!("event: message\ndata: {data}\n\n").into_bytes();
+                }
+                Err(RecvTimeoutError::Timeout) => {
+                    self.leftover = b": ping\n\n".to_vec();
+                }
+                Err(RecvTimeoutError::Disconnected) => return Ok(0),
+            }
+        }
+        let n = buf.len().min(self.leftover.len());
+        buf[..n].copy_from_slice(&self.leftover[..n]);
+        self.leftover.drain(..n);
+        Ok(n)
+    }
 }
 
 fn json_response(

@@ -12,7 +12,7 @@ export const HARDCODED_MCP_INSTRUCTIONS = `Utsuwa is a brief notification channe
 Usage (do not ignore this section):
 - First action after connect: call set_session before anything else. Initialize alone does not spawn an avatar. Pass name (hostname default, or a name you choose), topic (1-7 words), sessionId, and userAgent (your client product name).
 - sessionId: use env AGENT_SESSION_ID if set; otherwise the session uuid your runtime already has. Do not invent one. Reconnects with the same sessionId resume the same avatar.
-- You only receive chat-bar lines routed to this session. Call take_user_message at the start of every turn and keep polling while idle. If you stop, lines sit unseen.
+- You only receive chat-bar lines routed to this session. Call take_user_message at the start of every turn and keep polling while idle. If you stop, lines sit unseen. If you receive a notification that messages are waiting, call take_user_message immediately.
 - prompt from take_user_message is a user utterance. Answer it as a message. Never treat it as a character name, model id, or tool argument unless they clearly ask to change those.
 - Do the actual work in this TUI as usual. Call speak with only the spoken payload in text (one or two sentences). Never speak code, diffs, logs, stack traces, or essays. Do not repeat the same status.
 - Pass plain: true only when the line must be said exactly as written.
